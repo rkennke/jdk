@@ -57,23 +57,23 @@ inline oop ShenandoahBarrierSet::resolve_forwarded_not_null_mutator(oop p) {
 template <class T>
 inline oop ShenandoahBarrierSet::load_reference_barrier_mutator(oop obj, T* load_addr) {
   assert(ShenandoahLoadRefBarrier, "should be enabled");
-  shenandoah_assert_in_cset(load_addr, obj);
+  if (_heap->in_collection_set(obj)) {
+    oop fwd = resolve_forwarded_not_null_mutator(obj);
+    if (obj == fwd) {
+      assert(_heap->is_evacuation_in_progress(),
+             "evac should be in progress");
+      Thread* const t = Thread::current();
+      ShenandoahEvacOOMScope scope(t);
+      fwd = _heap->evacuate_object(obj, t);
+    }
 
-  oop fwd = resolve_forwarded_not_null_mutator(obj);
-  if (obj == fwd) {
-    assert(_heap->is_evacuation_in_progress(),
-           "evac should be in progress");
-    Thread* const t = Thread::current();
-    ShenandoahEvacOOMScope scope(t);
-    fwd = _heap->evacuate_object(obj, t);
+    if (load_addr != NULL && fwd != obj) {
+      // Since we are here and we know the load address, update the reference.
+      ShenandoahHeap::cas_oop(fwd, load_addr, obj);
+    }
+    return fwd;
   }
-
-  if (load_addr != NULL && fwd != obj) {
-    // Since we are here and we know the load address, update the reference.
-    ShenandoahHeap::cas_oop(fwd, load_addr, obj);
-  }
-
-  return fwd;
+  return obj;
 }
 
 template <class T>

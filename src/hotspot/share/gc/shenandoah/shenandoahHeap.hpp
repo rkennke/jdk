@@ -274,6 +274,7 @@ private:
 
   void set_gc_state_all_threads(char state);
   void set_gc_state_mask(uint mask, bool value);
+  void set_cset_all_threads();
 
 public:
   char gc_state() const;

@@ -28,8 +28,9 @@
 #include "gc/shenandoah/c2/shenandoahSupport.hpp"
 #include "gc/shenandoah/c2/shenandoahBarrierSetC2.hpp"
 #include "gc/shenandoah/shenandoahBarrierSetAssembler.hpp"
+#include "gc/shenandoah/shenandoahCollectionSet.hpp"
 #include "gc/shenandoah/shenandoahForwarding.hpp"
-#include "gc/shenandoah/shenandoahHeap.hpp"
+#include "gc/shenandoah/shenandoahHeap.inline.hpp"
 #include "gc/shenandoah/shenandoahHeapRegion.hpp"
 #include "gc/shenandoah/shenandoahRuntime.hpp"
 #include "gc/shenandoah/shenandoahThreadLocalData.hpp"
@@ -924,20 +925,22 @@ void ShenandoahBarrierC2Support::test_in_cset(Node*& ctrl, Node*& not_cset_ctrl,
   PhaseIterGVN& igvn = phase->igvn();
 
   Node* raw_val        = new CastP2XNode(old_ctrl, val);
-  Node* cset_idx       = new URShiftXNode(raw_val, igvn.intcon(ShenandoahHeapRegion::region_size_bytes_shift_jint()));
 
-  // Figure out the target cset address with raw pointer math.
-  // This avoids matching AddP+LoadB that would emit inefficient code.
-  // See JDK-8245465.
-  Node* cset_addr_ptr  = igvn.makecon(TypeRawPtr::make(ShenandoahHeap::in_cset_fast_test_addr()));
-  Node* cset_addr      = new CastP2XNode(old_ctrl, cset_addr_ptr);
-  Node* cset_load_addr = new AddXNode(cset_addr, cset_idx);
-  Node* cset_load_ptr  = new CastX2PNode(cset_load_addr);
-
-  Node* cset_load      = new LoadBNode(old_ctrl, raw_mem, cset_load_ptr,
+  //tty->print_cr("region size shift: %d", ShenandoahHeapRegion::region_size_bytes_shift_jint());
+  Node* bitidx1        = new URShiftXNode(raw_val, igvn.intcon(ShenandoahHeapRegion::region_size_bytes_shift_jint() +
+                                                                    ShenandoahHeap::heap()->collection_set()->coarse_bitmap_shift()));
+  Node* bitidx2        = new AndXNode(bitidx1, igvn.longcon(63));
+  Node* bitidx_x       = new CastIINode(bitidx2, TypeInt::INT);
+  Node* one            = igvn.MakeConX(1);
+  Node* mask           = new LShiftXNode(one, bitidx_x);
+  Node* thread         = new ThreadLocalNode();
+  Node* cset_offset    = igvn.MakeConX(in_bytes(ShenandoahThreadLocalData::cset_coarse_bitmap_offset()));
+  Node* cset_addr      = new AddPNode(phase->C->top(), thread, cset_offset);
+  Node* coarse_bitmap  = new LoadXNode(old_ctrl, raw_mem, cset_addr,
                                        DEBUG_ONLY(phase->C->get_adr_type(Compile::AliasIdxRaw)) NOT_DEBUG(NULL),
-                                       TypeInt::BYTE, MemNode::unordered);
-  Node* cset_cmp       = new CmpINode(cset_load, igvn.zerocon(T_INT));
+                                       TypeX_X, MemNode::unordered);
+  Node* cset_mask      = new AndXNode(coarse_bitmap, mask);
+  Node* cset_cmp       = new CmpXNode(cset_mask, igvn.zerocon(T_LONG));
   Node* cset_bool      = new BoolNode(cset_cmp, BoolTest::ne);
 
   IfNode* cset_iff     = new IfNode(old_ctrl, cset_bool, PROB_UNLIKELY(0.999), COUNT_UNKNOWN);
@@ -949,16 +952,22 @@ void ShenandoahBarrierC2Support::test_in_cset(Node*& ctrl, Node*& not_cset_ctrl,
   phase->register_control(ctrl,          loop, cset_iff);
   phase->register_control(not_cset_ctrl, loop, cset_iff);
 
-  phase->set_ctrl(cset_addr_ptr, phase->C->root());
+  phase->set_ctrl(one, phase->C->root());
+  phase->set_ctrl(cset_offset, phase->C->root());
 
   phase->register_new_node(raw_val,        old_ctrl);
-  phase->register_new_node(cset_idx,       old_ctrl);
+  phase->register_new_node(bitidx1,        old_ctrl);
+  phase->register_new_node(bitidx2,        old_ctrl);
+  phase->register_new_node(bitidx_x,       old_ctrl);
+  phase->register_new_node(mask,           old_ctrl);
+  phase->register_new_node(thread,         old_ctrl);
   phase->register_new_node(cset_addr,      old_ctrl);
-  phase->register_new_node(cset_load_addr, old_ctrl);
-  phase->register_new_node(cset_load_ptr,  old_ctrl);
-  phase->register_new_node(cset_load,      old_ctrl);
+  phase->register_new_node(coarse_bitmap,  old_ctrl);
+  phase->register_new_node(cset_mask,      old_ctrl);
   phase->register_new_node(cset_cmp,       old_ctrl);
   phase->register_new_node(cset_bool,      old_ctrl);
+  //tty->print_cr("Dump of cset-check:");
+  //cset_iff->dump(12);
 }
 
 void ShenandoahBarrierC2Support::call_lrb_stub(Node*& ctrl, Node*& val, Node* load_addr, Node*& result_mem, Node* raw_mem, bool is_native, PhaseIdealLoop* phase) {

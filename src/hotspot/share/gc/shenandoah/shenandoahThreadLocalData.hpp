@@ -40,6 +40,10 @@ public:
 
 private:
   char _gc_state;
+  uintptr_t _cset_coarse_bitmap;
+
+  int  _disarmed_value;
+
   // Evacuation OOM state
   uint8_t                 _oom_scope_nesting_level;
   bool                    _oom_during_evac;
@@ -48,11 +52,12 @@ private:
   size_t _gclab_size;
   uint  _worker_id;
   bool _force_satb_flush;
-  int  _disarmed_value;
   double _paced_time;
 
   ShenandoahThreadLocalData() :
     _gc_state(0),
+    _cset_coarse_bitmap(0),
+    _disarmed_value(0),
     _oom_scope_nesting_level(0),
     _oom_during_evac(false),
     _satb_mark_queue(&ShenandoahBarrierSet::satb_mark_queue_set()),
@@ -60,7 +65,6 @@ private:
     _gclab_size(0),
     _worker_id(INVALID_WORKER_ID),
     _force_satb_flush(false),
-    _disarmed_value(0),
     _paced_time(0) {
 
     // At least on x86_64, nmethod entry barrier encodes _disarmed_value offset
@@ -102,6 +106,14 @@ public:
 
   static char gc_state(Thread* thread) {
     return data(thread)->_gc_state;
+  }
+
+  static void set_cset_coarse_bitmap(Thread* thread, uintptr_t cset_coarse_bitmap) {
+    data(thread)->_cset_coarse_bitmap = cset_coarse_bitmap;
+  }
+
+  static uintptr_t cset_coarse_bitmap(Thread* thread) {
+    return data(thread)->_cset_coarse_bitmap;
   }
 
   static void set_worker_id(Thread* thread, uint id) {
@@ -205,6 +217,10 @@ public:
 
   static ByteSize gc_state_offset() {
     return Thread::gc_data_offset() + byte_offset_of(ShenandoahThreadLocalData, _gc_state);
+  }
+
+  static ByteSize cset_coarse_bitmap_offset() {
+    return Thread::gc_data_offset() + byte_offset_of(ShenandoahThreadLocalData, _cset_coarse_bitmap);
   }
 
   static ByteSize disarmed_value_offset() {

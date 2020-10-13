@@ -1721,6 +1721,7 @@ void ShenandoahHeap::op_final_mark() {
       ShenandoahHeapLocker locker(lock());
       _collection_set->clear();
       heuristics()->choose_collection_set(_collection_set);
+      set_cset_all_threads();
     }
 
     {
@@ -2271,6 +2272,14 @@ void ShenandoahHeap::set_gc_state_all_threads(char state) {
     ShenandoahThreadLocalData::set_gc_state(t, state);
   }
 }
+
+void ShenandoahHeap::set_cset_all_threads() {
+  uintptr_t cset = collection_set()->coarse_bitmap();
+  for (JavaThreadIteratorWithHandle jtiwh; JavaThread *t = jtiwh.next(); ) {
+    ShenandoahThreadLocalData::set_cset_coarse_bitmap(t, cset);
+  }
+}
+
 
 void ShenandoahHeap::set_gc_state_mask(uint mask, bool value) {
   assert(ShenandoahSafepoint::is_at_shenandoah_safepoint(), "Should really be Shenandoah safepoint");

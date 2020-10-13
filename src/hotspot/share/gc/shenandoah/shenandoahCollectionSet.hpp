@@ -40,6 +40,9 @@ private:
   // Bias cset map's base address for fast test if an oop is in cset
   char* const           _biased_cset_map;
 
+  uintptr_t             _coarse_bitmap;
+  int                   _coarse_bitmap_shift;
+
   ShenandoahHeap* const _heap;
 
   size_t                _garbage;
@@ -79,6 +82,14 @@ public:
   size_t used()      const { return _used; }
   size_t garbage()   const { return _garbage;   }
   void clear();
+
+  int coarse_bitmap_shift() const {
+    return _coarse_bitmap_shift;
+  }
+
+  uintptr_t coarse_bitmap() const {
+    return _coarse_bitmap;
+  }
 
 private:
   char* map_address() const {

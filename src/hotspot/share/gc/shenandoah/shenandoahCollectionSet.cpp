@@ -39,6 +39,8 @@ ShenandoahCollectionSet::ShenandoahCollectionSet(ShenandoahHeap* heap, ReservedS
   _map_space(space),
   _cset_map(_map_space.base() + ((uintx)heap_base >> _region_size_bytes_shift)),
   _biased_cset_map(_map_space.base()),
+  _coarse_bitmap(0),
+  _coarse_bitmap_shift(0),
   _heap(heap),
   _garbage(0),
   _used(0),
@@ -77,6 +79,15 @@ ShenandoahCollectionSet::ShenandoahCollectionSet(ShenandoahHeap* heap, ReservedS
 
   Copy::zero_to_bytes(_cset_map, _map_size);
   Copy::zero_to_bytes(_biased_cset_map, page_size);
+
+  size_t num_regions = _heap->num_regions();
+  int num_bits = sizeof(uintptr_t) * 8;
+  _coarse_bitmap_shift = log2_int(num_regions / num_bits);
+  if (num_regions >> _coarse_bitmap_shift > num_regions / num_bits) {
+    _coarse_bitmap_shift++;
+  }
+  assert(num_regions >> _coarse_bitmap_shift <= num_regions / num_bits, "need matching coarse bitmap shift");
+  log_info(gc,init)("Coarse bitmap shift: %d", _coarse_bitmap_shift);
 }
 
 void ShenandoahCollectionSet::add_region(ShenandoahHeapRegion* r) {
@@ -90,6 +101,8 @@ void ShenandoahCollectionSet::add_region(ShenandoahHeapRegion* r) {
 
   // Update the region status too. State transition would be checked internally.
   r->make_cset();
+
+  _coarse_bitmap |= 1 << (r->index() >> _coarse_bitmap_shift);
 }
 
 void ShenandoahCollectionSet::clear() {
@@ -107,6 +120,8 @@ void ShenandoahCollectionSet::clear() {
 
   _region_count = 0;
   _current_index = 0;
+
+  _coarse_bitmap = 0;
 }
 
 ShenandoahHeapRegion* ShenandoahCollectionSet::claim_next() {
