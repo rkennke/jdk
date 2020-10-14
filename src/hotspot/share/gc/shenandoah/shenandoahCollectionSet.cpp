@@ -102,7 +102,7 @@ void ShenandoahCollectionSet::add_region(ShenandoahHeapRegion* r) {
   // Update the region status too. State transition would be checked internally.
   r->make_cset();
 
-  _coarse_bitmap |= 1 << (r->index() >> _coarse_bitmap_shift);
+  _coarse_bitmap |= (uintptr_t)1 << ((uint)r->index() >> _coarse_bitmap_shift);
 }
 
 void ShenandoahCollectionSet::clear() {
