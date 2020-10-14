@@ -81,12 +81,12 @@ ShenandoahCollectionSet::ShenandoahCollectionSet(ShenandoahHeap* heap, ReservedS
   Copy::zero_to_bytes(_biased_cset_map, page_size);
 
   size_t num_regions = _heap->num_regions();
-  int num_bits = sizeof(uintptr_t) * 8;
+  uint num_bits = sizeof(uintptr_t) * 8;
   _coarse_bitmap_shift = log2_int(num_regions / num_bits);
-  if (num_regions >> _coarse_bitmap_shift > num_regions / num_bits) {
+  if (num_regions >> _coarse_bitmap_shift > num_bits) {
     _coarse_bitmap_shift++;
   }
-  assert(num_regions >> _coarse_bitmap_shift <= num_regions / num_bits, "need matching coarse bitmap shift");
+  assert(num_regions >> _coarse_bitmap_shift <= num_bits, "need matching coarse bitmap shift");
   log_info(gc,init)("Coarse bitmap shift: %d", _coarse_bitmap_shift);
 }
 
