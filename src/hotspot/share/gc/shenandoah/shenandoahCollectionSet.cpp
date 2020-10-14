@@ -102,10 +102,8 @@ void ShenandoahCollectionSet::print_coarse_bitmap(outputStream* out) const {
 }
 
 bool ShenandoahCollectionSet::is_in_coarse(void* ptr) const {
-  uintptr_t idx = reinterpret_cast<uintptr_t>(ptr) - reinterpret_cast<uintptr_t>(_heap->base());
-  idx = idx >> (ShenandoahHeapRegion::region_size_bytes_shift_jint() + _coarse_bitmap_shift);
-  idx = idx & 63;
-  uintptr_t mask = ((uintptr_t)1) << (int)idx;
+  uintptr_t idx = reinterpret_cast<uintptr_t>(ptr) >> (ShenandoahHeapRegion::region_size_bytes_shift_jint() + _coarse_bitmap_shift);
+  uintptr_t mask = ((uintptr_t)1) << (int)(idx & (sizeof(size_t) * 8 - 1));
   bool is_in = (_coarse_bitmap & mask) != 0;
   return is_in;
 }
@@ -122,7 +120,9 @@ void ShenandoahCollectionSet::add_region(ShenandoahHeapRegion* r) {
   // Update the region status too. State transition would be checked internally.
   r->make_cset();
 
-  _coarse_bitmap |= (uintptr_t)1 << ((uint)r->index() >> _coarse_bitmap_shift);
+  uintptr_t index = reinterpret_cast<uintptr_t>(r->bottom());
+  index = index >> (ShenandoahHeapRegion::region_size_bytes_shift_jint() + _coarse_bitmap_shift);
+  _coarse_bitmap |= ((uintptr_t)1) << (int)(index & (sizeof(size_t) * 8 - 1));
 }
 
 void ShenandoahCollectionSet::clear() {
