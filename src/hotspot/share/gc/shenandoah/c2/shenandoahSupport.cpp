@@ -38,6 +38,7 @@
 #include "opto/block.hpp"
 #include "opto/callnode.hpp"
 #include "opto/castnode.hpp"
+#include "opto/convertnode.hpp"
 #include "opto/movenode.hpp"
 #include "opto/phaseX.hpp"
 #include "opto/rootnode.hpp"
@@ -927,10 +928,12 @@ void ShenandoahBarrierC2Support::test_in_cset(Node*& ctrl, Node*& not_cset_ctrl,
   Node* raw_val        = new CastP2XNode(old_ctrl, val);
 
   //tty->print_cr("region size shift: %d", ShenandoahHeapRegion::region_size_bytes_shift_jint());
-  Node* bitidx1        = new URShiftXNode(raw_val, igvn.intcon(ShenandoahHeapRegion::region_size_bytes_shift_jint() +
+  Node* heapbase       = igvn.MakeConX(reinterpret_cast<uintptr_t>(ShenandoahHeap::heap()->base()));
+  Node* ptrdiff        = new SubXNode(raw_val, heapbase);
+  Node* bitidx1        = new URShiftXNode(ptrdiff, igvn.intcon(ShenandoahHeapRegion::region_size_bytes_shift_jint() +
                                                                     ShenandoahHeap::heap()->collection_set()->coarse_bitmap_shift()));
   Node* bitidx2        = new AndXNode(bitidx1, igvn.longcon(63));
-  Node* bitidx_x       = new CastIINode(bitidx2, TypeInt::INT);
+  Node* bitidx_x       = new ConvL2INode(bitidx2);
   Node* one            = igvn.MakeConX(1);
   Node* mask           = new LShiftXNode(one, bitidx_x);
   Node* thread         = new ThreadLocalNode();
@@ -952,10 +955,12 @@ void ShenandoahBarrierC2Support::test_in_cset(Node*& ctrl, Node*& not_cset_ctrl,
   phase->register_control(ctrl,          loop, cset_iff);
   phase->register_control(not_cset_ctrl, loop, cset_iff);
 
+  phase->set_ctrl(heapbase, phase->C->root());
   phase->set_ctrl(one, phase->C->root());
   phase->set_ctrl(cset_offset, phase->C->root());
 
   phase->register_new_node(raw_val,        old_ctrl);
+  phase->register_new_node(ptrdiff,        old_ctrl);
   phase->register_new_node(bitidx1,        old_ctrl);
   phase->register_new_node(bitidx2,        old_ctrl);
   phase->register_new_node(bitidx_x,       old_ctrl);
