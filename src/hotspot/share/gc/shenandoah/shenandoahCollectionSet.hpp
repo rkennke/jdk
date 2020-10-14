@@ -78,6 +78,7 @@ public:
   inline bool is_in_loc(void* loc)           const;
 
   void print_on(outputStream* out) const;
+  void print_coarse_bitmap(outputStream* out) const;
 
   size_t used()      const { return _used; }
   size_t garbage()   const { return _garbage;   }
@@ -91,6 +92,7 @@ public:
     return _coarse_bitmap;
   }
 
+  bool is_in_coarse(void* ptr) const;
 private:
   char* map_address() const {
     return _cset_map;

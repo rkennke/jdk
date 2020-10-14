@@ -57,6 +57,8 @@ inline oop ShenandoahBarrierSet::resolve_forwarded_not_null_mutator(oop p) {
 template <class T>
 inline oop ShenandoahBarrierSet::load_reference_barrier_mutator(oop obj, T* load_addr) {
   assert(ShenandoahLoadRefBarrier, "should be enabled");
+  if (obj == NULL) return obj;
+  assert(_heap->collection_set()->is_in_coarse(obj), "obj should be in coarse-cset: " PTR_FORMAT, p2i(obj));
   if (_heap->in_collection_set(obj)) {
     oop fwd = resolve_forwarded_not_null_mutator(obj);
     if (obj == fwd) {

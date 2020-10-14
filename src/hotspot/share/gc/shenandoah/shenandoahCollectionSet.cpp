@@ -90,6 +90,26 @@ ShenandoahCollectionSet::ShenandoahCollectionSet(ShenandoahHeap* heap, ReservedS
   log_info(gc,init)("Coarse bitmap shift: %d", _coarse_bitmap_shift);
 }
 
+void ShenandoahCollectionSet::print_coarse_bitmap(outputStream* out) const {
+  for (int i = sizeof(uintptr_t) * 8 - 1; i >= 0; i--) {
+    if ((_coarse_bitmap & (((uintptr_t)1) << i)) == 0) {
+      out->print("0");
+    } else {
+      out->print("1");
+    }
+  }
+  out->print("\n");
+}
+
+bool ShenandoahCollectionSet::is_in_coarse(void* ptr) const {
+  uintptr_t idx = reinterpret_cast<uintptr_t>(ptr) - reinterpret_cast<uintptr_t>(_heap->base());
+  idx = idx >> (ShenandoahHeapRegion::region_size_bytes_shift_jint() + _coarse_bitmap_shift);
+  idx = idx & 63;
+  uintptr_t mask = ((uintptr_t)1) << (int)idx;
+  bool is_in = (_coarse_bitmap & mask) != 0;
+  return is_in;
+}
+
 void ShenandoahCollectionSet::add_region(ShenandoahHeapRegion* r) {
   assert(ShenandoahSafepoint::is_at_shenandoah_safepoint(), "Must be at a safepoint");
   assert(Thread::current()->is_VM_thread(), "Must be VMThread");

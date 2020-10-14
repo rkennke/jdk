@@ -1721,6 +1721,15 @@ void ShenandoahHeap::op_final_mark() {
       ShenandoahHeapLocker locker(lock());
       _collection_set->clear();
       heuristics()->choose_collection_set(_collection_set);
+      {
+        LogTarget(Info, gc) lt;
+        if (lt.is_enabled()) {
+          ResourceMark rm;
+          LogStream ls(lt);
+          ls.print("Coarse cset: ");
+          _collection_set->print_coarse_bitmap(&ls);
+        }
+      }
       set_cset_all_threads();
     }
 
