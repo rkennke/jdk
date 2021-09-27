@@ -870,7 +870,7 @@ void ShenandoahBarrierSetAssembler::gen_load_reference_barrier_stub(LIR_Assemble
 
   Register obj = stub->obj()->as_register();
   Register res = stub->result()->as_register();
-  Register addr = stub->addr()->as_pointer_register();
+  Register addr = stub->addr() != NULL ? stub->addr()->as_pointer_register() : noreg;
   Register tmp1 = stub->tmp1()->as_register();
   Register tmp2 = stub->tmp2()->as_register();
   assert_different_registers(obj, res, addr, tmp1, tmp2);
@@ -902,12 +902,20 @@ void ShenandoahBarrierSetAssembler::gen_load_reference_barrier_stub(LIR_Assemble
 
   __ bind(slow_path);
   ce->store_parameter(res, 0);
-  ce->store_parameter(addr, 1);
+  if (addr != noreg) {
+    ce->store_parameter(addr, 1);
+  } else {
+    assert(is_strong && !is_native, "otherwise we're in trouble");
+  }
   if (is_strong) {
     if (is_native) {
       __ call(RuntimeAddress(bs->load_reference_barrier_strong_native_rt_code_blob()->code_begin()));
     } else {
-      __ call(RuntimeAddress(bs->load_reference_barrier_strong_rt_code_blob()->code_begin()));
+      if (addr == noreg) {
+        __ call(RuntimeAddress(bs->load_reference_barrier_strong_noheal_rt_code_blob()->code_begin()));
+      } else {
+        __ call(RuntimeAddress(bs->load_reference_barrier_strong_rt_code_blob()->code_begin()));
+      }
     }
   } else if (is_weak) {
     __ call(RuntimeAddress(bs->load_reference_barrier_weak_rt_code_blob()->code_begin()));
@@ -978,7 +986,7 @@ void ShenandoahBarrierSetAssembler::generate_c1_pre_barrier_runtime_stub(StubAss
   __ epilogue();
 }
 
-void ShenandoahBarrierSetAssembler::generate_c1_load_reference_barrier_runtime_stub(StubAssembler* sasm, DecoratorSet decorators) {
+void ShenandoahBarrierSetAssembler::generate_c1_load_reference_barrier_runtime_stub(StubAssembler* sasm, DecoratorSet decorators, bool noheal) {
   __ prologue("shenandoah_load_reference_barrier", false);
   // arg0 : object to be resolved
 
@@ -991,15 +999,25 @@ void ShenandoahBarrierSetAssembler::generate_c1_load_reference_barrier_runtime_s
 
 #ifdef _LP64
   __ load_parameter(0, c_rarg0);
-  __ load_parameter(1, c_rarg1);
+  if (!noheal) {
+    __ load_parameter(1, c_rarg1);
+  }
   if (is_strong) {
     if (is_native) {
       __ call_VM_leaf(CAST_FROM_FN_PTR(address, ShenandoahRuntime::load_reference_barrier_strong), c_rarg0, c_rarg1);
     } else {
-      if (UseCompressedOops) {
-        __ call_VM_leaf(CAST_FROM_FN_PTR(address, ShenandoahRuntime::load_reference_barrier_strong_narrow), c_rarg0, c_rarg1);
+      if (noheal) {
+        if (UseCompressedOops) {
+          __ call_VM_leaf(CAST_FROM_FN_PTR(address, ShenandoahRuntime::load_reference_barrier_strong_noheal_narrow), c_rarg0);
+        } else {
+          __ call_VM_leaf(CAST_FROM_FN_PTR(address, ShenandoahRuntime::load_reference_barrier_strong_noheal), c_rarg0);
+        }
       } else {
-        __ call_VM_leaf(CAST_FROM_FN_PTR(address, ShenandoahRuntime::load_reference_barrier_strong), c_rarg0, c_rarg1);
+        if (UseCompressedOops) {
+          __ call_VM_leaf(CAST_FROM_FN_PTR(address, ShenandoahRuntime::load_reference_barrier_strong_narrow), c_rarg0, c_rarg1);
+        } else {
+          __ call_VM_leaf(CAST_FROM_FN_PTR(address, ShenandoahRuntime::load_reference_barrier_strong), c_rarg0, c_rarg1);
+        }
       }
     }
   } else if (is_weak) {

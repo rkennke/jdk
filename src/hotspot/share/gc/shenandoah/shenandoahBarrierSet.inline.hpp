@@ -55,10 +55,10 @@ inline oop ShenandoahBarrierSet::resolve_forwarded_not_null_mutator(oop p) {
 }
 
 template <class T>
-inline oop ShenandoahBarrierSet::load_reference_barrier_mutator(oop obj, T* load_addr) {
+inline oop ShenandoahBarrierSet::load_reference_barrier_mutator_noheal(oop obj) {
   assert(ShenandoahLoadRefBarrier, "should be enabled");
-  shenandoah_assert_in_cset(load_addr, obj);
-
+  shenandoah_assert_in_cset(NULL, obj);
+  assert(_heap->has_forwarded_objects(), "only get here when we have forwarded objs");
   // We xor with 0b11, which prepares the header to make subsequent code more efficient:
   // - The forwarded test would be compiled to a simple test instruction, instead of wide-and followed
   //   by cmp.
@@ -76,11 +76,19 @@ inline oop ShenandoahBarrierSet::load_reference_barrier_mutator(oop obj, T* load
     ShenandoahEvacOOMScope scope(t);
     fwd = _heap->evacuate_object(obj, t);
   }
+  return fwd;
+}
 
-  if (load_addr != NULL && fwd != obj) {
-    // Since we are here and we know the load address, update the reference.
-    ShenandoahHeap::atomic_update_oop(fwd, load_addr, obj);
-  }
+template <class T>
+inline oop ShenandoahBarrierSet::load_reference_barrier_mutator(oop obj, T* load_addr) {
+  assert(ShenandoahLoadRefBarrier, "should be enabled");
+  assert(load_addr != NULL, "load addr must be != NULL");
+  shenandoah_assert_in_cset(load_addr, obj);
+
+  oop fwd = load_reference_barrier_mutator_noheal<T>(obj);
+
+  // Since we are here and we know the load address, update the reference.
+  ShenandoahHeap::atomic_update_oop(fwd, load_addr, obj);
 
   return fwd;
 }
@@ -140,7 +148,7 @@ inline oop ShenandoahBarrierSet::load_reference_barrier(DecoratorSet decorators,
   }
 
   oop fwd = load_reference_barrier(obj);
-  if (ShenandoahSelfFixing && load_addr != NULL && fwd != obj) {
+  if (ShenandoahSelfFixing && load_addr != NULL) {
     // Since we are here and we know the load address, update the reference.
     ShenandoahHeap::atomic_update_oop(fwd, load_addr, obj);
   }

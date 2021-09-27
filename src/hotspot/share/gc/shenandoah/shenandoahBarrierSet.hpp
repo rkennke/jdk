@@ -97,6 +97,8 @@ public:
   inline oop load_reference_barrier(oop obj);
 
   template <class T>
+  inline oop load_reference_barrier_mutator_noheal(oop obj);
+  template <class T>
   inline oop load_reference_barrier_mutator(oop obj, T* load_addr);
 
   template <class T>

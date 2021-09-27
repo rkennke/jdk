@@ -100,7 +100,9 @@ public:
           _obj(obj), _addr(addr), _result(result), _tmp1(tmp1), _tmp2(tmp2), _decorators(decorators)
   {
     assert(_obj->is_register(), "should be register");
-    assert(_addr->is_register(), "should be register");
+    if (addr != NULL) {
+      assert(_addr->is_register(), "should be register");
+    }
     assert(_result->is_register(), "should be register");
     assert(_tmp1->is_register(), "should be register");
     assert(_tmp2->is_register(), "should be register");
@@ -118,8 +120,10 @@ public:
     visitor->do_slow_case();
     visitor->do_input(_obj);
     visitor->do_temp(_obj);
-    visitor->do_input(_addr);
-    visitor->do_temp(_addr);
+    if (_addr != NULL) {
+      visitor->do_input(_addr);
+      visitor->do_temp(_addr);
+    }
     visitor->do_temp(_result);
     visitor->do_temp(_tmp1);
     visitor->do_temp(_tmp2);
@@ -191,6 +195,7 @@ class ShenandoahBarrierSetC1 : public BarrierSetC1 {
 private:
   CodeBlob* _pre_barrier_c1_runtime_code_blob;
   CodeBlob* _load_reference_barrier_strong_rt_code_blob;
+  CodeBlob* _load_reference_barrier_strong_noheal_rt_code_blob;
   CodeBlob* _load_reference_barrier_strong_native_rt_code_blob;
   CodeBlob* _load_reference_barrier_weak_rt_code_blob;
   CodeBlob* _load_reference_barrier_phantom_rt_code_blob;
@@ -215,6 +220,11 @@ public:
   CodeBlob* load_reference_barrier_strong_rt_code_blob() {
     assert(_load_reference_barrier_strong_rt_code_blob != NULL, "");
     return _load_reference_barrier_strong_rt_code_blob;
+  }
+
+  CodeBlob* load_reference_barrier_strong_noheal_rt_code_blob() {
+    assert(_load_reference_barrier_strong_noheal_rt_code_blob != NULL, "");
+    return _load_reference_barrier_strong_noheal_rt_code_blob;
   }
 
   CodeBlob* load_reference_barrier_strong_native_rt_code_blob() {

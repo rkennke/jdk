@@ -41,6 +41,9 @@ public:
   static oopDesc* load_reference_barrier_strong(oopDesc* src, oop* load_addr);
   static oopDesc* load_reference_barrier_strong_narrow(oopDesc* src, narrowOop* load_addr);
 
+  static oopDesc* load_reference_barrier_strong_noheal(oopDesc* src);
+  static oopDesc* load_reference_barrier_strong_noheal_narrow(oopDesc* src);
+
   static oopDesc* load_reference_barrier_weak(oopDesc* src, oop* load_addr);
   static oopDesc* load_reference_barrier_weak_narrow(oopDesc* src, narrowOop* load_addr);
 

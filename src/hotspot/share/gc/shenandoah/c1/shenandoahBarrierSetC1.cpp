@@ -52,6 +52,7 @@ void ShenandoahLoadReferenceBarrierStub::emit_code(LIR_Assembler* ce) {
 ShenandoahBarrierSetC1::ShenandoahBarrierSetC1() :
   _pre_barrier_c1_runtime_code_blob(NULL),
   _load_reference_barrier_strong_rt_code_blob(NULL),
+  _load_reference_barrier_strong_noheal_rt_code_blob(NULL),
   _load_reference_barrier_strong_native_rt_code_blob(NULL),
   _load_reference_barrier_weak_rt_code_blob(NULL),
   _load_reference_barrier_phantom_rt_code_blob(NULL) {}
@@ -123,8 +124,10 @@ LIR_Opr ShenandoahBarrierSetC1::load_reference_barrier_impl(LIRGenerator* gen, L
 
   obj = ensure_in_register(gen, obj, T_OBJECT);
   assert(obj->is_register(), "must be a register at this point");
-  addr = ensure_in_register(gen, addr, T_ADDRESS);
-  assert(addr->is_register(), "must be a register at this point");
+  if (addr != NULL) {
+    addr = ensure_in_register(gen, addr, T_ADDRESS);
+    assert(addr->is_register(), "must be a register at this point");
+  }
   LIR_Opr result = gen->result_register_for(obj->value_type());
   __ move(obj, result);
   LIR_Opr tmp1 = gen->new_register(T_ADDRESS);
@@ -253,13 +256,15 @@ class C1ShenandoahPreBarrierCodeGenClosure : public StubAssemblerCodeGenClosure 
 class C1ShenandoahLoadReferenceBarrierCodeGenClosure : public StubAssemblerCodeGenClosure {
 private:
   const DecoratorSet _decorators;
-
+  bool _noheal;
 public:
-  C1ShenandoahLoadReferenceBarrierCodeGenClosure(DecoratorSet decorators) : _decorators(decorators) {}
+  C1ShenandoahLoadReferenceBarrierCodeGenClosure(DecoratorSet decorators, bool noheal) :
+  _decorators(decorators),
+  _noheal(noheal) {}
 
   virtual OopMapSet* generate_code(StubAssembler* sasm) {
     ShenandoahBarrierSetAssembler* bs = (ShenandoahBarrierSetAssembler*)BarrierSet::barrier_set()->barrier_set_assembler();
-    bs->generate_c1_load_reference_barrier_runtime_stub(sasm, _decorators);
+    bs->generate_c1_load_reference_barrier_runtime_stub(sasm, _decorators, _noheal);
     return NULL;
   }
 };
@@ -270,22 +275,26 @@ void ShenandoahBarrierSetC1::generate_c1_runtime_stubs(BufferBlob* buffer_blob) 
                                                               "shenandoah_pre_barrier_slow",
                                                               false, &pre_code_gen_cl);
   if (ShenandoahLoadRefBarrier) {
-    C1ShenandoahLoadReferenceBarrierCodeGenClosure lrb_strong_code_gen_cl(ON_STRONG_OOP_REF);
+    C1ShenandoahLoadReferenceBarrierCodeGenClosure lrb_strong_code_gen_cl(ON_STRONG_OOP_REF, false);
     _load_reference_barrier_strong_rt_code_blob = Runtime1::generate_blob(buffer_blob, -1,
                                                                   "shenandoah_load_reference_barrier_strong_slow",
                                                                   false, &lrb_strong_code_gen_cl);
 
-    C1ShenandoahLoadReferenceBarrierCodeGenClosure lrb_strong_native_code_gen_cl(ON_STRONG_OOP_REF | IN_NATIVE);
+    C1ShenandoahLoadReferenceBarrierCodeGenClosure lrb_strong_noheal_code_gen_cl(ON_STRONG_OOP_REF, true);
+    _load_reference_barrier_strong_noheal_rt_code_blob = Runtime1::generate_blob(buffer_blob, -1,
+                                                                          "shenandoah_load_reference_barrier_strong_noheal_slow",
+                                                                          false, &lrb_strong_noheal_code_gen_cl);
+    C1ShenandoahLoadReferenceBarrierCodeGenClosure lrb_strong_native_code_gen_cl(ON_STRONG_OOP_REF | IN_NATIVE, false);
     _load_reference_barrier_strong_native_rt_code_blob = Runtime1::generate_blob(buffer_blob, -1,
                                                                           "shenandoah_load_reference_barrier_strong_native_slow",
                                                                           false, &lrb_strong_native_code_gen_cl);
 
-    C1ShenandoahLoadReferenceBarrierCodeGenClosure lrb_weak_code_gen_cl(ON_WEAK_OOP_REF);
+    C1ShenandoahLoadReferenceBarrierCodeGenClosure lrb_weak_code_gen_cl(ON_WEAK_OOP_REF, false);
     _load_reference_barrier_weak_rt_code_blob = Runtime1::generate_blob(buffer_blob, -1,
                                                                           "shenandoah_load_reference_barrier_weak_slow",
                                                                           false, &lrb_weak_code_gen_cl);
 
-    C1ShenandoahLoadReferenceBarrierCodeGenClosure lrb_phantom_code_gen_cl(ON_PHANTOM_OOP_REF | IN_NATIVE);
+    C1ShenandoahLoadReferenceBarrierCodeGenClosure lrb_phantom_code_gen_cl(ON_PHANTOM_OOP_REF | IN_NATIVE, false);
     _load_reference_barrier_phantom_rt_code_blob = Runtime1::generate_blob(buffer_blob, -1,
                                                                            "shenandoah_load_reference_barrier_phantom_slow",
                                                                            false, &lrb_phantom_code_gen_cl);
