@@ -67,14 +67,14 @@ inline oop ShenandoahBarrierSet::load_reference_barrier_mutator(oop obj, T* load
   //   for the branches.
   uintptr_t header = obj->mark().value() ^ markWord::marked_value;
   oop fwd;
-  if ((header & markWord::lock_mask_in_place) != 0) {
+  if ((header & markWord::lock_mask_in_place) == 0) {
+    fwd = cast_to_oop(reinterpret_cast<HeapWord*>(header));
+  } else {
     assert(_heap->is_evacuation_in_progress(),
            "evac should be in progress");
     Thread* const t = Thread::current();
     ShenandoahEvacOOMScope scope(t);
     fwd = _heap->evacuate_object(obj, t);
-  } else {
-    fwd = cast_to_oop(reinterpret_cast<HeapWord*>(header));
   }
 
   if (load_addr != NULL && fwd != obj) {
@@ -93,20 +93,20 @@ inline oop ShenandoahBarrierSet::load_reference_barrier(oop obj) {
       _heap->in_collection_set(obj)) { // Subsumes NULL-check
     assert(obj != NULL, "cset check must have subsumed NULL-check");
     uintptr_t header = obj->mark().value() ^ markWord::marked_value;
-    oop fwd;
-    // TODO: It should not be necessary to check evac-in-progress here.
-    // We do it for mark-compact, which may have forwarded objects,
-    // and objects in cset and gets here via runtime barriers.
-    // We can probably fix this as soon as mark-compact has its own
-    // marking phase.
-    if ((header & markWord::lock_mask_in_place) != 0 && _heap->is_evacuation_in_progress()) {
+    if ((header & markWord::lock_mask_in_place) == 0) {
+      return cast_to_oop(reinterpret_cast<HeapWord*>(header));
+    } else if (_heap->is_evacuation_in_progress()) {
+      // TODO: It should not be necessary to check evac-in-progress here.
+      // We do it for mark-compact, which may have forwarded objects,
+      // and objects in cset and gets here via runtime barriers.
+      // We can probably fix this as soon as mark-compact has its own
+      // marking phase.
       Thread* t = Thread::current();
       ShenandoahEvacOOMScope oom_evac_scope(t);
-      fwd = _heap->evacuate_object(obj, t);
+      return _heap->evacuate_object(obj, t);
     } else {
-      fwd = cast_to_oop(reinterpret_cast<HeapWord*>(header));
+      return obj;
     }
-    return fwd;
   }
   return obj;
 }
