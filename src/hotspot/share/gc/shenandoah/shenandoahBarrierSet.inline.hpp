@@ -59,13 +59,22 @@ inline oop ShenandoahBarrierSet::load_reference_barrier_mutator(oop obj, T* load
   assert(ShenandoahLoadRefBarrier, "should be enabled");
   shenandoah_assert_in_cset(load_addr, obj);
 
-  oop fwd = resolve_forwarded_not_null_mutator(obj);
-  if (obj == fwd) {
+  // We xor with 0b11, which prepares the header to make subsequent code more efficient:
+  // - The forwarded test would be compiled to a simple test instruction, instead of wide-and followed
+  //   by cmp.
+  // - The forward-pointer decoding will be a no-op because the xor already decoded it properly.
+  // - It doesn't require an extra register because the original header doesn't need to be preserved
+  //   for the branches.
+  uintptr_t header = obj->mark().value() ^ markWord::marked_value;
+  oop fwd;
+  if ((header & markWord::lock_mask_in_place) != 0) {
     assert(_heap->is_evacuation_in_progress(),
            "evac should be in progress");
     Thread* const t = Thread::current();
     ShenandoahEvacOOMScope scope(t);
     fwd = _heap->evacuate_object(obj, t);
+  } else {
+    fwd = cast_to_oop(reinterpret_cast<HeapWord*>(header));
   }
 
   if (load_addr != NULL && fwd != obj) {
@@ -83,16 +92,19 @@ inline oop ShenandoahBarrierSet::load_reference_barrier(oop obj) {
   if (_heap->has_forwarded_objects() &&
       _heap->in_collection_set(obj)) { // Subsumes NULL-check
     assert(obj != NULL, "cset check must have subsumed NULL-check");
-    oop fwd = resolve_forwarded_not_null(obj);
+    uintptr_t header = obj->mark().value() ^ markWord::marked_value;
+    oop fwd;
     // TODO: It should not be necessary to check evac-in-progress here.
     // We do it for mark-compact, which may have forwarded objects,
     // and objects in cset and gets here via runtime barriers.
     // We can probably fix this as soon as mark-compact has its own
     // marking phase.
-    if (obj == fwd && _heap->is_evacuation_in_progress()) {
-       Thread* t = Thread::current();
+    if ((header & markWord::lock_mask_in_place) != 0 && _heap->is_evacuation_in_progress()) {
+      Thread* t = Thread::current();
       ShenandoahEvacOOMScope oom_evac_scope(t);
-      return _heap->evacuate_object(obj, t);
+      fwd = _heap->evacuate_object(obj, t);
+    } else {
+      fwd = cast_to_oop(reinterpret_cast<HeapWord*>(header));
     }
     return fwd;
   }
