@@ -38,6 +38,7 @@
 #include "opto/callnode.hpp"
 #include "opto/castnode.hpp"
 #include "opto/movenode.hpp"
+#include "opto/narrowptrnode.hpp"
 #include "opto/phaseX.hpp"
 #include "opto/rootnode.hpp"
 #include "opto/runtime.hpp"
@@ -1371,7 +1372,7 @@ void ShenandoahBarrierC2Support::pin_and_expand(PhaseIdealLoop* phase) {
     assert(val->bottom_type()->make_oopptr(), "need oop");
     assert(val->bottom_type()->make_oopptr()->const_oop() == NULL, "expect non-constant");
 
-    enum { _heap_stable = 1, _evac_path, _not_cset, PATH_LIMIT };
+    enum { _heap_stable = 1, _evac_path, _resolve, _not_cset, PATH_LIMIT };
     Node* region = new RegionNode(PATH_LIMIT);
     Node* val_phi = new PhiNode(region, val->bottom_type()->is_oopptr());
     Node* raw_mem_phi = PhiNode::make(region, raw_mem, Type::MEMORY, TypeRawPtr::BOTTOM);
@@ -1406,12 +1407,6 @@ void ShenandoahBarrierC2Support::pin_and_expand(PhaseIdealLoop* phase) {
       raw_mem_phi->del_req(_not_cset);
     }
 
-    // Resolve object when orig-value is in cset.
-    // Make the unconditional resolve for fwdptr.
-
-    // Call lrb-stub and wire up that path in slots 4
-    Node* result_mem = NULL;
-
     Node* addr;
     if (ShenandoahSelfFixing) {
       VectorSet visited;
@@ -1432,7 +1427,7 @@ void ShenandoahBarrierC2Support::pin_and_expand(PhaseIdealLoop* phase) {
       } else {
         Node* addr2 = addr->in(AddPNode::Address);
         if (addr2->Opcode() == Op_AddP && addr2->in(AddPNode::Base) == addr2->in(AddPNode::Address) &&
-              addr2->in(AddPNode::Base) == orig_base) {
+        addr2->in(AddPNode::Base) == orig_base) {
           addr2 = addr2->clone();
           addr2->set_req(AddPNode::Base, base);
           addr2->set_req(AddPNode::Address, base);
@@ -1444,6 +1439,86 @@ void ShenandoahBarrierC2Support::pin_and_expand(PhaseIdealLoop* phase) {
         }
       }
     }
+
+    // Resolve object when orig-value is in cset.
+    // Make the unconditional resolve for fwdptr.
+    if (ShenandoahBarrierSet::is_strong_access(lrb->decorators())) {
+      Node* mark_addr = new AddPNode(val, val, phase->igvn().MakeConX(oopDesc::mark_offset_in_bytes()));
+      phase->register_new_node(mark_addr, ctrl);
+      assert(val->bottom_type()->isa_oopptr(), "what else?");
+      Node* markword = new LoadXNode(ctrl, raw_mem, mark_addr, TypeRawPtr::BOTTOM, TypeX_X, MemNode::unordered);
+      phase->register_new_node(markword, ctrl);
+
+      // Test if object is forwarded. This is the case if lowest two bits are set.
+      // We XOR the lowest two bits for these reasons:
+      // - It makes the test simpler: it comes down to a simple xor-test-sequence
+      // - It already decodes the forward pointer
+      // - It avoids allocation of extra registers
+      Node* xored = new XorXNode(markword, phase->igvn().MakeConX(markWord::lock_mask_in_place));
+      phase->register_new_node(xored, ctrl);
+      Node* masked = new AndXNode(xored, phase->igvn().MakeConX(markWord::lock_mask_in_place));
+      phase->register_new_node(masked, ctrl);
+      Node* cmp = new CmpXNode(masked, phase->igvn().zerocon(LP64_ONLY(T_LONG) NOT_LP64(T_INT)));
+      phase->register_new_node(cmp, ctrl);
+
+      // Only branch to LRB stub if object is not forwarded; otherwise reply with fwd ptr
+      Node* bol = new BoolNode(cmp, BoolTest::eq); // Equals 0 means it's forwarded
+      phase->register_new_node(bol, ctrl);
+
+      IfNode* iff = new IfNode(ctrl, bol, PROB_LIKELY(0.999), COUNT_UNKNOWN);
+      phase->register_control(iff, loop, ctrl);
+      Node* if_fwd = new IfTrueNode(iff);
+      phase->register_control(if_fwd, loop, iff);
+      Node* if_not_fwd = new IfFalseNode(iff);
+      phase->register_control(if_not_fwd, loop, iff);
+
+      // Decode forward pointer: we simply cast the xored value.
+      Node* fwdraw = new CastX2PNode(xored);
+      fwdraw->init_req(0, if_fwd);
+      phase->register_new_node(fwdraw, if_fwd);
+      Node* fwd = new CheckCastPPNode(NULL, fwdraw, val->bottom_type());
+      phase->register_new_node(fwd, if_fwd);
+
+      if (ShenandoahSelfFixing && addr != phase->igvn().zerocon(T_OBJECT)) {
+        if (UseCompressedOops) {
+          Node* fwd_enc = new EncodePNode(fwd, fwd->bottom_type()->make_narrowoop());
+          phase->register_new_node(fwd_enc, if_fwd);
+          Node* val_enc = new EncodePNode(val, val->bottom_type()->make_narrowoop());
+          phase->register_new_node(val_enc, if_fwd);
+          Node* sfx_cas = new CompareAndSwapNNode(if_fwd, raw_mem, addr, fwd_enc, val_enc, MemNode::release);
+          phase->register_new_node(sfx_cas, if_fwd);
+          Node* proj = new SCMemProjNode(sfx_cas);
+          phase->register_new_node(proj, if_fwd);
+          // Wire up not-equal-path in slots 3.
+          region->init_req(_resolve, if_fwd);
+          val_phi->init_req(_resolve, fwd);
+          raw_mem_phi->init_req(_resolve, proj);
+        } else {
+          Node* sfx_cas = new CompareAndSwapPNode(if_fwd, raw_mem, addr, fwd, val, MemNode::release);
+          phase->register_new_node(sfx_cas, if_fwd);
+          Node* proj = new SCMemProjNode(sfx_cas);
+          phase->register_new_node(proj, if_fwd);
+          // Wire up not-equal-path in slots 3.
+          region->init_req(_resolve, if_fwd);
+          val_phi->init_req(_resolve, fwd);
+          raw_mem_phi->init_req(_resolve, proj);
+        }
+      } else {
+        // Wire up not-equal-path in slots 3.
+        region->init_req(_resolve, if_fwd);
+        val_phi->init_req(_resolve, fwd);
+        raw_mem_phi->init_req(_resolve, raw_mem);
+      }
+      // Call lrb-stub and wire up that path in slots 4
+      ctrl = if_not_fwd;
+    } else {
+      region->del_req(_resolve);
+      val_phi->del_req(_resolve);
+      raw_mem_phi->del_req(_resolve);
+    }
+
+    Node* result_mem = NULL;
+
     call_lrb_stub(ctrl, val, addr, result_mem, raw_mem, lrb->decorators(), phase);
     region->init_req(_evac_path, ctrl);
     val_phi->init_req(_evac_path, val);
@@ -1692,6 +1767,8 @@ Node* ShenandoahBarrierC2Support::get_load_addr(PhaseIdealLoop* phase, VectorSet
     case Op_ConP:
     case Op_Parm:
     case Op_CreateEx:
+      return phase->igvn().zerocon(T_OBJECT);
+    case Op_CastX2P:
       return phase->igvn().zerocon(T_OBJECT);
     default:
 #ifdef ASSERT
