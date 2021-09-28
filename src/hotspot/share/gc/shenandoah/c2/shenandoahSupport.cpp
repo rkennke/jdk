@@ -1485,7 +1485,8 @@ void ShenandoahBarrierC2Support::pin_and_expand(PhaseIdealLoop* phase) {
           phase->register_new_node(fwd_enc, if_fwd);
           Node* val_enc = new EncodePNode(val, val->bottom_type()->make_narrowoop());
           phase->register_new_node(val_enc, if_fwd);
-          Node* sfx_cas = new CompareAndSwapNNode(if_fwd, raw_mem, addr, fwd_enc, val_enc, MemNode::release);
+          const TypePtr* adr_type = addr->get_ptr_type();
+          Node* sfx_cas = new CompareAndExchangeNNode(if_fwd, raw_mem, addr, fwd_enc, val_enc, adr_type, fwd->bottom_type()->make_narrowoop(), MemNode::release);
           phase->register_new_node(sfx_cas, if_fwd);
           Node* proj = new SCMemProjNode(sfx_cas);
           phase->register_new_node(proj, if_fwd);
@@ -1494,7 +1495,8 @@ void ShenandoahBarrierC2Support::pin_and_expand(PhaseIdealLoop* phase) {
           val_phi->init_req(_resolve, fwd);
           raw_mem_phi->init_req(_resolve, proj);
         } else {
-          Node* sfx_cas = new CompareAndSwapPNode(if_fwd, raw_mem, addr, fwd, val, MemNode::release);
+          const TypePtr* adr_type = addr->get_ptr_type();
+          Node* sfx_cas = new CompareAndExchangePNode(if_fwd, raw_mem, addr, fwd, val, adr_type, fwd->bottom_type(), MemNode::release);
           phase->register_new_node(sfx_cas, if_fwd);
           Node* proj = new SCMemProjNode(sfx_cas);
           phase->register_new_node(proj, if_fwd);
