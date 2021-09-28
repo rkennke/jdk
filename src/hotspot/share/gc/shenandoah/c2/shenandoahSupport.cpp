@@ -984,7 +984,7 @@ void ShenandoahBarrierC2Support::call_lrb_stub(Node*& ctrl, Node*& val, Node* lo
   bool is_native  = ShenandoahBarrierSet::is_native_access(decorators);
   bool is_narrow  = UseCompressedOops && !is_native;
   if (is_strong) {
-    if (load_addr == NULL) {
+    if (load_addr == phase->igvn().zerocon(T_OBJECT)) {
       if (is_narrow) {
         calladdr = CAST_FROM_FN_PTR(address, ShenandoahRuntime::load_reference_barrier_strong_noheal_narrow);
         name = "load_reference_barrier_strong_noheal_narrow";
@@ -1019,9 +1019,9 @@ void ShenandoahBarrierC2Support::call_lrb_stub(Node*& ctrl, Node*& val, Node* lo
       name = "load_reference_barrier_phantom";
     }
   }
-  assert(load_addr != NULL || is_strong, "!is_strong => load_addr != NULL");
-  const TypeFunc* call_type = (load_addr == NULL) ? ShenandoahBarrierSetC2::shenandoah_load_reference_barrier_noheal_Type()
-                                                  : ShenandoahBarrierSetC2::shenandoah_load_reference_barrier_Type();
+  const TypeFunc* call_type = (load_addr == phase->igvn().zerocon(T_OBJECT) && is_strong) ?
+                                          ShenandoahBarrierSetC2::shenandoah_load_reference_barrier_noheal_Type() :
+                                          ShenandoahBarrierSetC2::shenandoah_load_reference_barrier_Type();
   Node* call = new CallLeafNode(call_type, calladdr, name, TypeRawPtr::BOTTOM);
 
   call->init_req(TypeFunc::Control, ctrl);
@@ -1030,10 +1030,8 @@ void ShenandoahBarrierC2Support::call_lrb_stub(Node*& ctrl, Node*& val, Node* lo
   call->init_req(TypeFunc::FramePtr, phase->C->top());
   call->init_req(TypeFunc::ReturnAdr, phase->C->top());
   call->init_req(TypeFunc::Parms, val);
-  if (load_addr != NULL) {
+  if (load_addr != phase->igvn().zerocon(T_OBJECT) || !is_strong) {
     call->init_req(TypeFunc::Parms+1, load_addr);
-  } else {
-    assert(is_strong, "no non-strong stuff here");
   }
   phase->register_control(call, loop, ctrl);
   ctrl = new ProjNode(call, TypeFunc::Control);
@@ -1419,7 +1417,7 @@ void ShenandoahBarrierC2Support::pin_and_expand(PhaseIdealLoop* phase) {
       VectorSet visited;
       addr = get_load_addr(phase, visited, lrb);
     } else {
-      addr = NULL;
+      addr = phase->igvn().zerocon(T_OBJECT);
     }
     if (addr != NULL && addr->Opcode() == Op_AddP) {
       Node* orig_base = addr->in(AddPNode::Base);
@@ -1658,7 +1656,7 @@ Node* ShenandoahBarrierC2Support::get_load_addr(PhaseIdealLoop* phase, VectorSet
     case Op_ShenandoahCompareAndExchangeN:
       // Those instructions would just have stored a different
       // value into the field. No use to attempt to fix it at this point.
-      return NULL;
+      return phase->igvn().zerocon(T_OBJECT);
     case Op_CMoveP:
     case Op_CMoveN: {
       Node* t = get_load_addr(phase, visited, in->in(CMoveNode::IfTrue));
@@ -1668,7 +1666,7 @@ Node* ShenandoahBarrierC2Support::get_load_addr(PhaseIdealLoop* phase, VectorSet
       if (t == NULL && f != NULL) return f;
       if (t != NULL && t == f)    return t;
       // Ambiguity.
-      return NULL;
+      return phase->igvn().zerocon(T_OBJECT);
     }
     case Op_Phi: {
       Node* addr = NULL;
@@ -1678,7 +1676,7 @@ Node* ShenandoahBarrierC2Support::get_load_addr(PhaseIdealLoop* phase, VectorSet
           addr = addr1;
         }
         if (addr != addr1) {
-          return NULL;
+          return phase->igvn().zerocon(T_OBJECT);
         }
       }
       return addr;
@@ -1694,12 +1692,12 @@ Node* ShenandoahBarrierC2Support::get_load_addr(PhaseIdealLoop* phase, VectorSet
     case Op_ConP:
     case Op_Parm:
     case Op_CreateEx:
-      return NULL;
+      return phase->igvn().zerocon(T_OBJECT);
     default:
 #ifdef ASSERT
       fatal("Unknown node in get_load_addr: %s", NodeClassNames[in->Opcode()]);
 #endif
-      return NULL;
+      return phase->igvn().zerocon(T_OBJECT);
   }
 
 }
