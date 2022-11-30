@@ -51,7 +51,7 @@ void C2SafepointPollStub::emit(C2_MacroAssembler& masm) {
 }
 
 int C2EntryBarrierStub::size() const {
-  return 8 * 4 + 4;
+  return 8 * 4 + 4;  // 4 bytes for alignment margin
 }
 
 void C2EntryBarrierStub::emit(C2_MacroAssembler& masm) {
