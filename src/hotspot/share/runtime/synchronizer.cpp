@@ -505,6 +505,12 @@ void ObjectSynchronizer::enter(Handle obj, BasicLock* lock, JavaThread* current)
           }
           // Otherwise retry.
           header = witness;
+        } else if (header.is_fast_locked()) {
+          if (lock_stack.try_enter_recursive(obj())) {
+            return;
+          }
+          // Otherwise fall-through to inflate-enter.
+          break;
         } else {
           // Fall-through to inflate-enter.
           break;
@@ -557,6 +563,10 @@ void ObjectSynchronizer::exit(oop object, BasicLock* lock, JavaThread* current) 
     if (UseFastLocking) {
       // fast-locking does not use the 'lock' parameter.
       if (mark.is_fast_locked()) {
+        LockStack& lock_stack = current->lock_stack();
+        if (lock_stack.try_exit_recursive(object)) {
+          return;
+        }
         markWord unlocked_header = mark.set_unlocked();
         markWord witness = object->cas_set_mark(unlocked_header, mark);
         if (witness != mark) {
@@ -570,7 +580,6 @@ void ObjectSynchronizer::exit(oop object, BasicLock* lock, JavaThread* current) 
           monitor->set_owner_from_anonymous(current);
           monitor->exit(current);
         }
-        LockStack& lock_stack = current->lock_stack();
         lock_stack.remove(object);
         return;
       }
@@ -1048,22 +1057,27 @@ bool ObjectSynchronizer::current_thread_holds_lock(JavaThread* current,
   markWord mark = read_stable_mark(obj);
 
   if (mark.has_locker()) {
+    tty->print_cr("stack-locked: " PTR_FORMAT, p2i(h_obj()));
     // stack-locked case, header points into owner's stack
     return current->is_lock_owned((address)mark.locker());
   }
 
   if (mark.is_fast_locked()) {
+    tty->print_cr("fast-locked: " PTR_FORMAT, p2i(h_obj()));
     // fast-locking case, see if lock is in current's lock stack
     return current->lock_stack().contains(h_obj());
   }
 
   if (mark.has_monitor()) {
+    tty->print_cr("monitor-locked: " PTR_FORMAT, p2i(h_obj()));
     // inflated monitor so header points to ObjectMonitor (tagged pointer).
     // The first stage of async deflation does not affect any field
     // used by this comparison so the ObjectMonitor* is usable here.
     ObjectMonitor* monitor = mark.monitor();
     return monitor->is_entered(current) != 0;
   }
+    tty->print_cr("unlocked-locked: " PTR_FORMAT, p2i(h_obj()));
+
   // Unlocked case, header in place
   assert(mark.is_neutral(), "sanity check");
   return false;
@@ -1340,6 +1354,9 @@ ObjectMonitor* ObjectSynchronizer::inflate(Thread* current, oop object,
       if (own) {
         // Owned by us.
         monitor->set_owner_from(NULL, current);
+        assert(current->is_Java_thread(), "must be: checked in is_lock_owned()");
+        LockStack& lock_stack = reinterpret_cast<JavaThread*>(current)->lock_stack();
+        monitor->set_recursions(lock_stack.get_recursions(object));
       } else {
         // Owned by somebody else.
         monitor->set_owner_anonymous();

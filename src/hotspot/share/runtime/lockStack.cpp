@@ -31,23 +31,23 @@
 #include "utilities/ostream.hpp"
 
 LockStack::LockStack() :
-  _base(UseFastLocking && !UseHeavyMonitors ? NEW_C_HEAP_ARRAY(oop, INITIAL_CAPACITY, mtSynchronizer) : NULL),
+  _base(UseFastLocking && !UseHeavyMonitors ? NEW_C_HEAP_ARRAY(intptr_t, INITIAL_CAPACITY, mtSynchronizer) : NULL),
   _limit(_base + INITIAL_CAPACITY),
   _current(_base) {
 }
 
 LockStack::~LockStack() {
   if (UseFastLocking && !UseHeavyMonitors) {
-    FREE_C_HEAP_ARRAY(oop, _base);
+    FREE_C_HEAP_ARRAY(intptr_t, _base);
   }
 }
 
 #ifndef PRODUCT
 void LockStack::validate(const char* msg) const {
   assert(UseFastLocking && !UseHeavyMonitors, "never use lock-stack when fast-locking is disabled");
-  for (oop* loc1 = _base; loc1 < _current - 1; loc1++) {
-    for (oop* loc2 = loc1 + 1; loc2 < _current; loc2++) {
-      assert(*loc1 != *loc2, "entries must be unique: %s", msg);
+  for (intptr_t* loc1 = _base; loc1 < _current - 1; loc1++) {
+    for (intptr_t* loc2 = loc1 + 1; loc2 < _current; loc2++) {
+      assert(decode_oop(*loc1) != decode_oop(*loc2), "entries must be unique: %s", msg);
     }
   }
 }
@@ -59,11 +59,11 @@ void LockStack::grow(size_t min_capacity) {
   size_t capacity = _limit - _base;
   size_t index = _current - _base;
   size_t new_capacity = MAX2(min_capacity, capacity * 2);
-  oop* new_stack = NEW_C_HEAP_ARRAY(oop, new_capacity, mtSynchronizer);
+  intptr_t* new_stack = NEW_C_HEAP_ARRAY(intptr_t, new_capacity, mtSynchronizer);
   for (size_t i = 0; i < index; i++) {
     *(new_stack + i) = *(_base + i);
   }
-  FREE_C_HEAP_ARRAY(oop, _base);
+  FREE_C_HEAP_ARRAY(intptr_t, _base);
   _base = new_stack;
   _limit = _base + new_capacity;
   _current = _base + index;
@@ -71,7 +71,7 @@ void LockStack::grow(size_t min_capacity) {
   assert((_limit - _base) >= (ptrdiff_t) min_capacity, "must grow enough");
 }
 
-void LockStack::ensure_lock_stack_size(oop* required_limit) {
+void LockStack::ensure_lock_stack_size(intptr_t* required_limit) {
   JavaThread* jt = JavaThread::current();
   LockStack& lock_stack = jt->lock_stack();
   lock_stack.grow(required_limit - lock_stack._base);

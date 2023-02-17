@@ -5982,10 +5982,10 @@ void MacroAssembler::fast_lock(Register obj, Register hdr, Register t1, Register
     br(Assembler::GE, slow);
   }
 
-  // Load (object->mark() | 1) into hdr
-  orr(hdr, hdr, markWord::unlocked_value);
   // Clear lock-bits, into t2
-  eor(t2, hdr, markWord::unlocked_value);
+  andr(t2, hdr, ~markWord::lock_mask_in_place);
+  // Load (object->mark() | 1) into hdr
+  orr(hdr, t2, markWord::unlocked_value);
   // Try to swing header from unlocked to locked
   cmpxchg(/*addr*/ obj, /*expected*/ hdr, /*new*/ t2, Assembler::xword,
           /*acquire*/ true, /*release*/ true, /*weak*/ false, t1);
@@ -6002,6 +6002,19 @@ void MacroAssembler::fast_unlock(Register obj, Register hdr, Register t1, Regist
   assert(UseFastLocking, "only used with fast-locking");
   assert_different_registers(obj, hdr, t1, t2);
 
+  Label unlock, done;
+
+  ldr(t1, Address(rthread, JavaThread::lock_stack_current_offset()));
+  sub(t1, t1, oopSize);
+  ldr(t2, Address(t1));
+  tst(t2, LockStack::OOP_MASK);
+  br(Assembler::EQ, unlock);
+  sub(t2, t2, 1);
+  str(t2, Address(t1));
+  b(done);
+
+  bind(unlock);
+
   // Load the expected old header (lock-bits cleared to indicate 'locked') into hdr
   andr(hdr, hdr, ~markWord::lock_mask_in_place);
 
@@ -6017,4 +6030,6 @@ void MacroAssembler::fast_unlock(Register obj, Register hdr, Register t1, Regist
   ldr(t1, Address(rthread, JavaThread::lock_stack_current_offset()));
   sub(t1, t1, oopSize);
   str(t1, Address(rthread, JavaThread::lock_stack_current_offset()));
+
+  bind(done);
 }

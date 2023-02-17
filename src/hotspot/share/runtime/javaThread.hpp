@@ -1149,6 +1149,7 @@ public:
 
   static ByteSize lock_stack_current_offset()    { return byte_offset_of(JavaThread, _lock_stack) + LockStack::current_offset(); }
   static ByteSize lock_stack_limit_offset()    { return byte_offset_of(JavaThread, _lock_stack) + LockStack::limit_offset(); }
+  static ByteSize lock_stack_base_offset()    { return byte_offset_of(JavaThread, _lock_stack) + LockStack::base_offset(); }
 
 
   static OopStorage* thread_oop_storage();

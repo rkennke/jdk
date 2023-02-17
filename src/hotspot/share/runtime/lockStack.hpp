@@ -36,19 +36,40 @@ class LockStack {
   friend class VMStructs;
 private:
   static const size_t INITIAL_CAPACITY = 1;
-  oop* _base;
-  oop* _limit;
-  oop* _current;
+
+  static inline oop decode_oop(intptr_t entry) {
+    return cast_to_oop(entry & ~OOP_MASK);
+  }
+
+  static inline intptr_t encode_oop(oop o) {
+    intptr_t entry = cast_from_oop<intptr_t>(o);
+    assert(decode_recursion(entry) == 0, "sanity");
+    return entry;
+  }
+
+  static inline int decode_recursion(intptr_t entry) {
+    return static_cast<int>(entry & OOP_MASK);
+  }
+
+  intptr_t* _base;
+  intptr_t* _limit;
+  intptr_t* _current;
 
   void grow(size_t min_capacity);
 
   void validate(const char* msg) const PRODUCT_RETURN;
 public:
+#ifdef _LP64
+  static const intptr_t OOP_MASK = 7;
+#else
+  static const intptr_t OOP_MASK = 3;
+#endif
+
   static ByteSize current_offset()    { return byte_offset_of(LockStack, _current); }
   static ByteSize base_offset()       { return byte_offset_of(LockStack, _base); }
   static ByteSize limit_offset()      { return byte_offset_of(LockStack, _limit); }
 
-  static void ensure_lock_stack_size(oop* _required_limit);
+  static void ensure_lock_stack_size(intptr_t* _required_limit);
 
   LockStack();
   ~LockStack();
@@ -58,6 +79,10 @@ public:
   inline void remove(oop o);
 
   inline bool contains(oop o) const;
+
+  inline bool try_enter_recursive(oop obj);
+  inline bool try_exit_recursive(oop obj);
+  inline intx get_recursions(oop obj);
 
   // GC support
   inline void oops_do(OopClosure* cl);

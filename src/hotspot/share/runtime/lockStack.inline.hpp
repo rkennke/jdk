@@ -35,17 +35,17 @@ inline void LockStack::push(oop o) {
   if (_current >= _limit) {
     grow((_limit - _base) + 1);
   }
-  *_current = o;
+  *_current = encode_oop(o);
   _current++;
   validate("post-push");
 }
 
 inline oop LockStack::pop() {
   validate("pre-pop");
-  oop* new_loc = _current - 1;
+  intptr_t* new_loc = _current - 1;
   assert(new_loc < _current, "underflow, probably unbalanced push/pop");
   _current = new_loc;
-  oop o = *_current;
+  oop o = decode_oop(*_current);
   assert(!contains(o), "entries must be unique");
   validate("post-pop");
   return o;
@@ -54,9 +54,9 @@ inline oop LockStack::pop() {
 inline void LockStack::remove(oop o) {
   validate("pre-remove");
   assert(contains(o), "entry must be present");
-  for (oop* loc = _base; loc < _current; loc++) {
-    if (*loc == o) {
-      oop* last = _current - 1;
+  for (intptr_t* loc = _base; loc < _current; loc++) {
+    if (decode_oop(*loc) == o) {
+      intptr_t* last = _current - 1;
       for (; loc < last; loc++) {
         *loc = *(loc + 1);
       }
@@ -73,8 +73,8 @@ inline bool LockStack::contains(oop o) const {
   bool found = false;
   size_t i = 0;
   size_t found_i = 0;
-  for (oop* loc = _current - 1; loc >= _base; loc--) {
-    if (*loc == o) {
+  for (intptr_t* loc = _current - 1; loc >= _base; loc--) {
+    if (decode_oop(*loc) == o) {
       validate("post-contains");
       return true;
     }
@@ -83,10 +83,63 @@ inline bool LockStack::contains(oop o) const {
   return false;
 }
 
+inline bool LockStack::try_enter_recursive(oop obj) {
+  intptr_t* loc = _current - 1;
+  intptr_t entry = *loc;
+  if (decode_oop(entry) == obj) {
+    int recursions = decode_recursion(entry);
+    if (recursions < OOP_MASK) {
+      // tty->print_cr("recursive enter: " PTR_FORMAT ", %d -> %d", p2i(obj), recursions, recursions + 1);
+      entry++;
+      assert(decode_oop(entry) == obj, "object must still match");
+      *loc = entry;
+      return true;
+    }
+    for (intptr_t* loc = _current - 2; loc >= _base; loc--) {
+      if (decode_oop(*loc) == obj) {
+        tty->print_cr("missed possible interleaved recursive locking");
+        break;;
+      }
+    }
+  }
+  return false;
+}
+
+inline bool LockStack::try_exit_recursive(oop obj) {
+  intptr_t* loc = _current - 1;
+  intptr_t entry = *loc;
+  if (decode_oop(entry) == obj) {
+    int recursions = decode_recursion(entry);
+    if (recursions > 0) {
+      entry--;
+      assert(decode_oop(entry) == obj, "object must still match");
+      *loc = entry;
+      return true;
+    }
+  }
+  return false;
+}
+
+inline intx LockStack::get_recursions(oop obj) {
+  for (intptr_t* loc = _current - 1; loc >= _base; loc--) {
+    intptr_t entry = *loc;
+    if (decode_oop(entry) == obj) {
+      int recursions = decode_recursion(entry);
+      return recursions;
+    }
+  }
+  ShouldNotReachHere();
+  return -1;
+}
+
 inline void LockStack::oops_do(OopClosure* cl) {
   validate("pre-oops-do");
-  for (oop* loc = _base; loc < _current; loc++) {
-    cl->do_oop(loc);
+  for (intptr_t* loc = _base; loc < _current; loc++) {
+    intptr_t entry = *loc;
+    oop p = decode_oop(entry);
+    int recursions = decode_recursion(entry);
+    cl->do_oop(&p);
+    *loc = encode_oop(p) | recursions;
   }
   validate("post-oops-do");
 }

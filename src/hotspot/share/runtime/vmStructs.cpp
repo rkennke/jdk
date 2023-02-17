@@ -700,8 +700,8 @@
   nonstatic_field(Thread,                      _tlab,                                         ThreadLocalAllocBuffer)                \
   nonstatic_field(Thread,                      _allocated_bytes,                              jlong)                                 \
   nonstatic_field(JavaThread,                  _lock_stack,                                   LockStack)                             \
-  nonstatic_field(LockStack,                   _current,                                      oop*)                                  \
-  nonstatic_field(LockStack,                   _base,                                         oop*)                                  \
+  nonstatic_field(LockStack,                   _current,                                      intptr_t*)                             \
+  nonstatic_field(LockStack,                   _base,                                         intptr_t*)                             \
   nonstatic_field(NamedThread,                 _name,                                         char*)                                 \
   nonstatic_field(NamedThread,                 _processed_thread,                             Thread*)                               \
   nonstatic_field(JavaThread,                  _threadObj,                                    OopHandle)                             \
