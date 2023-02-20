@@ -69,7 +69,9 @@ int C1_MacroAssembler::lock_object(Register hdr, Register obj, Register disp_hdr
     const Register thread = disp_hdr;
     get_thread(thread);
 #endif
-    fast_lock_impl(obj, hdr, thread, tmp, slow_case, LP64_ONLY(false) NOT_LP64(true));
+    Label success;
+    fast_lock_impl(obj, hdr, thread, tmp, success, slow_case, LP64_ONLY(false) NOT_LP64(true));
+    bind(success);
   } else {
     Label done;
     // and mark it as unlocked
@@ -135,7 +137,9 @@ void C1_MacroAssembler::unlock_object(Register hdr, Register obj, Register disp_
   if (UseFastLocking) {
     movptr(disp_hdr, Address(obj, hdr_offset));
     andptr(disp_hdr, ~(int32_t)markWord::lock_mask_in_place);
-    fast_unlock_impl(obj, disp_hdr, hdr, slow_case);
+    Label success;
+    fast_unlock_impl(obj, disp_hdr, hdr, r15_thread, success, slow_case);
+    bind(success);
   } else {
     // test if object header is pointing to the displaced header, and if so, restore
     // the displaced header in the object - if the object header is not pointing to

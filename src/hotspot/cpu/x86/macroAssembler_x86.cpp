@@ -9672,15 +9672,17 @@ void MacroAssembler::check_stack_alignment(Register sp, const char* msg, unsigne
   bind(L_stack_ok);
 }
 
-void MacroAssembler::fast_lock_impl(Register obj, Register hdr, Register thread, Register tmp, Label& slow, bool rt_check_stack) {
+void MacroAssembler::fast_lock_impl(Register obj, Register hdr, Register thread, Register tmp, Label& success, Label& failure, bool rt_check_stack) {
   assert(hdr == rax, "header must be in rax for cmpxchg");
   assert_different_registers(obj, hdr, thread, tmp);
+
+  Label recursive;
 
   // First we need to check if the lock-stack has room for pushing the object reference.
   if (rt_check_stack) {
     movptr(tmp, Address(thread, JavaThread::lock_stack_current_offset()));
     cmpptr(tmp, Address(thread, JavaThread::lock_stack_limit_offset()));
-    jcc(Assembler::greaterEqual, slow);
+    jcc(Assembler::greaterEqual, failure);
   }
 #ifdef ASSERT
   else {
@@ -9701,31 +9703,77 @@ void MacroAssembler::fast_lock_impl(Register obj, Register hdr, Register thread,
   orptr(hdr, markWord::unlocked_value);
   lock();
   cmpxchgptr(tmp, Address(obj, oopDesc::mark_offset_in_bytes()));
-  jcc(Assembler::notEqual, slow);
+  jcc(Assembler::notEqual, recursive);
 
   // If successful, push object to lock-stack.
   movptr(tmp, Address(thread, JavaThread::lock_stack_current_offset()));
   movptr(Address(tmp, 0), obj);
   increment(tmp, oopSize);
   movptr(Address(thread, JavaThread::lock_stack_current_offset()), tmp);
+  jmp(success);
+
+  bind(recursive);
+  movptr(tmp, Address(thread, JavaThread::lock_stack_current_offset()));
+  // Check if top of lock-stack matches lock object.
+  movptr(hdr, Address(tmp, -oopSize));
+  andptr(hdr, ~LockStack::OOP_MASK);
+  cmpptr(hdr, obj);
+  jcc(Assembler::notEqual, failure);
+
+  // Check for possible overflow. This is extremely rare - is there a way to avoid this check
+  // in the common path?
+  // Also, we need to reload the lock stack entry because we don't have enough registers
+  // to preserve the entry from the above check.
+  movptr(hdr, Address(tmp, -oopSize));
+  andptr(hdr, LockStack::OOP_MASK);
+  cmpptr(hdr, LockStack::OOP_MASK);
+  jcc(Assembler::equal, failure);
+
+  // Now increment recursion counter.
+  addptr(Address(tmp, -oopSize), 1);
 }
 
-void MacroAssembler::fast_unlock_impl(Register obj, Register hdr, Register tmp, Label& slow) {
+void MacroAssembler::fast_unlock_impl(Register obj, Register hdr, Register tmp, Register thread, Label& success, Label& failure) {
   assert(hdr == rax, "header must be in rax for cmpxchg");
   assert_different_registers(obj, hdr, tmp);
 
+  Label unlock;
+
+#ifdef ASSERT
+  {
+    Label ok;
+    movptr(tmp, Address(thread, JavaThread::lock_stack_current_offset()));
+    movptr(tmp, Address(tmp, -oopSize));
+    andptr(tmp, ~LockStack::OOP_MASK);
+    cmpptr(tmp, obj);
+    jcc(Assembler::equal, ok);
+    STOP("top of lock-stack does not match object");
+    bind(ok);
+  }
+#endif
+
+  // All calls to unlock are symmetric, which means that the top
+  // lock-stack entry matches the lock object. We have checked this
+  // in the block above.  movptr(tmp, Address(thread, JavaThread::lock_stack_current_offset()));
+  movptr(tmp, Address(thread, JavaThread::lock_stack_current_offset()));
+  movptr(tmp, Address(tmp, -oopSize));
+  // If recursions is 0, then we need to do a real unlock.
+  testptr(tmp, LockStack::OOP_MASK);
+  jcc(Assembler::equal, unlock);
+
+  // Otherwise we decrement the recursion count and exit.
+  // Unfortunately, we lost the top of stack address above. Re-load it.
+  movptr(tmp, Address(thread, JavaThread::lock_stack_current_offset()));
+  subptr(Address(tmp, -oopSize), 1);
+  jmp(success);
+
   // Mark-word must be 00 now, try to swing it back to 01 (unlocked)
+  bind(unlock);
   movptr(tmp, hdr); // The expected old value
   orptr(tmp, markWord::unlocked_value);
   lock();
   cmpxchgptr(tmp, Address(obj, oopDesc::mark_offset_in_bytes()));
-  jcc(Assembler::notEqual, slow);
+  jcc(Assembler::notEqual, failure);
   // Pop the lock object from the lock-stack.
-#ifdef _LP64
-  const Register thread = r15_thread;
-#else
-  const Register thread = rax;
-  get_thread(rax);
-#endif
   subptr(Address(thread, JavaThread::lock_stack_current_offset()), oopSize);
 }

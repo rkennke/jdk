@@ -613,12 +613,12 @@ void C2_MacroAssembler::fast_lock(Register objReg, Register boxReg, Register tmp
 
   movptr(tmpReg, Address(objReg, oopDesc::mark_offset_in_bytes()));          // [FETCH]
   testptr(tmpReg, markWord::monitor_value); // inflated vs stack-locked|neutral
-  jccb(Assembler::notZero, IsInflated);
+  jcc(Assembler::notZero, IsInflated);
 
   if (!UseHeavyMonitors) {
     if (UseFastLocking) {
 #ifdef _LP64
-      fast_lock_impl(objReg, tmpReg, thread, scrReg, NO_COUNT, false);
+      fast_lock_impl(objReg, tmpReg, thread, scrReg, COUNT, NO_COUNT, false);
       jmp(COUNT);
 #else
       // We can not emit the lock-stack-check in verified_entry() because we don't have enough
@@ -778,7 +778,7 @@ void C2_MacroAssembler::fast_lock(Register objReg, Register boxReg, Register tmp
 // A perfectly viable alternative is to elide the owner check except when
 // Xcheck:jni is enabled.
 
-void C2_MacroAssembler::fast_unlock(Register objReg, Register boxReg, Register tmpReg, bool use_rtm) {
+void C2_MacroAssembler::fast_unlock(Register objReg, Register boxReg, Register tmpReg, Register thread, bool use_rtm) {
   assert(boxReg == rax, "");
   assert_different_registers(objReg, boxReg, tmpReg);
 
@@ -810,12 +810,12 @@ void C2_MacroAssembler::fast_unlock(Register objReg, Register boxReg, Register t
       jcc(Assembler::zero, Stacked);
     } else
 #endif
-    jccb(Assembler::zero, Stacked);
+    jcc(Assembler::zero, Stacked);
     if (UseFastLocking) {
       // If the owner is ANONYMOUS, we need to fix it - in the slow-path.
       testb(Address(tmpReg, OM_OFFSET_NO_MONITOR_VALUE_TAG(owner)), (int32_t) (intptr_t) ANONYMOUS_OWNER);
 #ifdef _LP64
-      C2FixAnonOMOwnerStub* stub = new (Compile::current()->comp_arena()) C2FixAnonOMOwnerStub(tmpReg);
+      C2FixAnonOMOwnerStub* stub = new (Compile::current()->comp_arena()) C2FixAnonOMOwnerStub(tmpReg, boxReg);
       Compile::current()->output()->add_stub(stub);
       jcc(Assembler::notEqual, stub->entry());
       bind(stub->continuation());
@@ -887,7 +887,7 @@ void C2_MacroAssembler::fast_unlock(Register objReg, Register boxReg, Register t
   jccb  (Assembler::notZero, CheckSucc);
   // Without cast to int32_t this style of movptr will destroy r10 which is typically obj.
   movptr(Address(tmpReg, OM_OFFSET_NO_MONITOR_VALUE_TAG(owner)), NULL_WORD);
-  jmpb  (DONE_LABEL);
+  jmp  (DONE_LABEL);
 
   // Try to avoid passing control into the slow_path ...
   bind  (CheckSucc);
@@ -950,7 +950,7 @@ void C2_MacroAssembler::fast_unlock(Register objReg, Register boxReg, Register t
     bind  (Stacked);
     if (UseFastLocking) {
       mov(boxReg, tmpReg);
-      fast_unlock_impl(objReg, boxReg, tmpReg, NO_COUNT);
+      fast_unlock_impl(objReg, boxReg, tmpReg, thread, COUNT, NO_COUNT);
       jmp(COUNT);
     } else {
       movptr(tmpReg, Address (boxReg, 0));      // re-fetch

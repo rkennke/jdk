@@ -1232,7 +1232,9 @@ void InterpreterMacroAssembler::lock_object(Register lock_reg) {
 #endif
       // Load object header, prepare for CAS from unlocked to locked.
       movptr(swap_reg, Address(obj_reg, oopDesc::mark_offset_in_bytes()));
-      fast_lock_impl(obj_reg, swap_reg, thread, tmp_reg, slow_case);
+      Label success;
+      fast_lock_impl(obj_reg, swap_reg, thread, tmp_reg, success, slow_case);
+      bind(success);
     } else {
       // Load immediate 1 into swap_reg %rax
       movl(swap_reg, 1);
@@ -1350,12 +1352,17 @@ void InterpreterMacroAssembler::unlock_object(Register lock_reg) {
       get_thread(thread);
 #endif
       // Handle unstructured locking.
-      cmpptr(obj_reg, Address(thread, JavaThread::lock_stack_current_offset()));
+      movptr(swap_reg, Address(thread, JavaThread::lock_stack_current_offset()));
+      movptr(swap_reg, Address(swap_reg, -oopSize));
+      andptr(swap_reg, ~LockStack::OOP_MASK);
+      cmpptr(swap_reg, obj_reg);
       jcc(Assembler::notEqual, slow_case);
       // Try to swing header from locked to unlock.
       movptr(swap_reg, Address(obj_reg, oopDesc::mark_offset_in_bytes()));
       andptr(swap_reg, ~(int32_t)markWord::lock_mask_in_place);
-      fast_unlock_impl(obj_reg, swap_reg, header_reg, slow_case);
+      Label success;
+      fast_unlock_impl(obj_reg, swap_reg, header_reg, r15_thread, success, slow_case);
+      bind(success);
     } else {
       // Load the old header from BasicLock structure
       movptr(header_reg, Address(swap_reg,

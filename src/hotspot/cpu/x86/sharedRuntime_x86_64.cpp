@@ -2148,7 +2148,9 @@ nmethod* SharedRuntime::generate_native_wrapper(MacroAssembler* masm,
       if (UseFastLocking) {
         // Load object header
         __ movptr(swap_reg, Address(obj_reg, oopDesc::mark_offset_in_bytes()));
-        __ fast_lock_impl(obj_reg, swap_reg, r15_thread, rscratch1, slow_path_lock);
+        Label success;
+        __ fast_lock_impl(obj_reg, swap_reg, r15_thread, rscratch1, success, slow_path_lock);
+        __ bind(success);
       } else {
         // Load immediate 1 into swap_reg %rax
         __ movl(swap_reg, 1);
@@ -2314,7 +2316,9 @@ nmethod* SharedRuntime::generate_native_wrapper(MacroAssembler* masm,
       if (UseFastLocking) {
         __ movptr(swap_reg, Address(obj_reg, oopDesc::mark_offset_in_bytes()));
         __ andptr(swap_reg, ~(int32_t)markWord::lock_mask_in_place);
-        __ fast_unlock_impl(obj_reg, swap_reg, lock_reg, slow_path_unlock);
+        Label success;
+        __ fast_unlock_impl(obj_reg, swap_reg, lock_reg, r15_thread, success, slow_path_unlock);
+        __ bind(success);
       } else {
         // get address of the stack lock
         __ lea(rax, Address(rsp, lock_slot_offset * VMRegImpl::stack_slot_size));

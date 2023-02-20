@@ -13389,7 +13389,7 @@ instruct cmpFastUnlock(rFlagsReg cr, rRegP object, rax_RegP box, rRegP tmp) %{
   ins_cost(300);
   format %{ "fastunlock $object,$box\t! kills $box,$tmp" %}
   ins_encode %{
-    __ fast_unlock($object$$Register, $box$$Register, $tmp$$Register, ra_->C->use_rtm());
+    __ fast_unlock($object$$Register, $box$$Register, $tmp$$Register, r15_thread, ra_->C->use_rtm());
   %}
   ins_pipe(pipe_slow);
 %}
