@@ -1564,8 +1564,8 @@ public:
   // Code for java.lang.Thread::onSpinWait() intrinsic.
   void spin_wait();
 
-  void fast_lock(Register obj, Register hdr, Register t1, Register t2, Label& slow, bool rt_check_stack = true);
-  void fast_unlock(Register obj, Register hdr, Register t1, Register t2, Label& slow);
+  void fast_lock(Register obj, Register hdr, Register t1, Register t2, Label& success, Label& failure, bool rt_check_stack = true);
+  void fast_unlock(Register obj, Register hdr, Register t1, Register t2, Label& success, Label& failure);
 
 private:
   // Check the current thread doesn't need a cross modify fence.

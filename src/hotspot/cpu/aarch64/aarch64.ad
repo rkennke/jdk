@@ -3801,9 +3801,7 @@ encode %{
 
     if (!UseHeavyMonitors) {
       if (UseFastLocking) {
-        __ fast_lock(oop, disp_hdr, tmp, rscratch1, no_count, false);
-
-        // Indicate success at cont.
+        __ fast_lock(oop, disp_hdr, tmp, rscratch1, count, no_count, false);
         __ cmp(oop, oop);
         __ b(count);
       } else {
@@ -3907,7 +3905,7 @@ encode %{
 
     if (!UseHeavyMonitors) {
       if (UseFastLocking) {
-        __ fast_unlock(oop, tmp, box, disp_hdr, no_count);
+        __ fast_unlock(oop, tmp, box, disp_hdr, count, no_count);
 
         // Indicate success at cont.
         __ cmp(oop, oop);

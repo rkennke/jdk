@@ -5970,16 +5970,18 @@ void MacroAssembler::double_move(VMRegPair src, VMRegPair dst, Register tmp) {
 //  - obj: the object to be locked
 //  - hdr: the header, already loaded from obj, will be destroyed
 //  - t1, t2, t3: temporary registers, will be destroyed
-void MacroAssembler::fast_lock(Register obj, Register hdr, Register t1, Register t2, Label& slow, bool rt_check_stack) {
+void MacroAssembler::fast_lock(Register obj, Register hdr, Register t1, Register t2, Label& success, Label& failure, bool rt_check_stack) {
   assert(UseFastLocking, "only used with fast-locking");
   assert_different_registers(obj, hdr, t1, t2);
+
+  Label recursive;
 
   if (rt_check_stack) {
     // Check if we would have space on lock-stack for the object.
     ldr(t1, Address(rthread, JavaThread::lock_stack_current_offset()));
     ldr(t2, Address(rthread, JavaThread::lock_stack_limit_offset()));
     cmp(t1, t2);
-    br(Assembler::GE, slow);
+    br(Assembler::GE, failure);
   }
 
   // Clear lock-bits, into t2
@@ -5989,29 +5991,78 @@ void MacroAssembler::fast_lock(Register obj, Register hdr, Register t1, Register
   // Try to swing header from unlocked to locked
   cmpxchg(/*addr*/ obj, /*expected*/ hdr, /*new*/ t2, Assembler::xword,
           /*acquire*/ true, /*release*/ true, /*weak*/ false, t1);
-  br(Assembler::NE, slow);
+  br(Assembler::NE, recursive);
 
   // After successful lock, push object on lock-stack
   ldr(t1, Address(rthread, JavaThread::lock_stack_current_offset()));
   str(obj, Address(t1, 0));
   add(t1, t1, oopSize);
   str(t1, Address(rthread, JavaThread::lock_stack_current_offset()));
+
+  // C2 success path needs to have zero flag set.
+  cmp(obj, obj);
+  b(success);
+
+  bind(recursive);
+  ldr(t1, Address(rthread, JavaThread::lock_stack_current_offset()));
+  ldr(t2, Address(t1, -oopSize));
+  andr(hdr, t2, ~LockStack::OOP_MASK);
+  cmp(hdr, obj);
+  br(Assembler::NE, failure);
+
+  // Top entry matches object - check for possible overflow.
+  add(hdr, t2, LockStack::OOP_MASK);
+  cmp(hdr, (unsigned char)LockStack::OOP_MASK);
+  br(Assembler::EQ, failure);
+
+  // Now increment recursion counter and store back.
+  add(t2, t2, 1);
+  str(t2, Address(t1, -oopSize));
 }
 
-void MacroAssembler::fast_unlock(Register obj, Register hdr, Register t1, Register t2, Label& slow) {
+void MacroAssembler::fast_unlock(Register obj, Register hdr, Register t1, Register t2, Label& success, Label& failure) {
   assert(UseFastLocking, "only used with fast-locking");
   assert_different_registers(obj, hdr, t1, t2);
 
-  Label unlock, done;
+  Label unlock;
+
+#ifdef ASSERT
+  {
+    Label ok;
+    tst(hdr, markWord::lock_mask_in_place);
+    br(Assembler::EQ, ok);
+    STOP("Object is monitor-locked, should be checked before");
+    bind(ok);
+  }
+#endif
 
   ldr(t1, Address(rthread, JavaThread::lock_stack_current_offset()));
-  sub(t1, t1, oopSize);
-  ldr(t2, Address(t1));
+#ifdef ASSERT
+  {
+    Label ok;
+    ldr(t2, Address(t1, -oopSize));
+    andr(t2, t2, ~LockStack::OOP_MASK);
+    cmpoop(t2, obj);
+    br(Assembler::EQ, ok);
+    STOP("top of lock-stack does not match object");
+    bind(ok);
+  }
+#endif
+
+  // All calls to unlock are symmetric, which means that the top
+  // lock-stack entry matches the lock object. We have checked this
+  // in the block above.
+  ldr(t2, Address(t1, -oopSize));
+  // If recursions is 0, then we need to do a real unlock.
   tst(t2, LockStack::OOP_MASK);
   br(Assembler::EQ, unlock);
+
+  // Otherwise we decrement the recursion count and exit.
   sub(t2, t2, 1);
-  str(t2, Address(t1));
-  b(done);
+  str(t2, Address(t1, -oopSize));
+  // C2 requires zero flag to be 1 at success path.
+  cmp(obj, obj);
+  b(success);
 
   bind(unlock);
 
@@ -6024,12 +6075,10 @@ void MacroAssembler::fast_unlock(Register obj, Register hdr, Register t1, Regist
   // Try to swing header from locked to unlocked
   cmpxchg(obj, hdr, t1, Assembler::xword,
           /*acquire*/ true, /*release*/ true, /*weak*/ false, t2);
-  br(Assembler::NE, slow);
+  br(Assembler::NE, failure);
 
   // After successful unlock, pop object from lock-stack
   ldr(t1, Address(rthread, JavaThread::lock_stack_current_offset()));
   sub(t1, t1, oopSize);
   str(t1, Address(rthread, JavaThread::lock_stack_current_offset()));
-
-  bind(done);
 }

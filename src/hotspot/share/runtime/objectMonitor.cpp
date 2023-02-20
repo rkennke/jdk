@@ -1155,7 +1155,7 @@ void ObjectMonitor::exit(JavaThread* current, bool not_suspended) {
                     " is exiting an ObjectMonitor it does not own.", p2i(current));
       lsh.print_cr("The imbalance is possibly caused by JNI locking.");
       print_debug_style_on(&lsh);
-      assert(false, "Non-balanced monitor enter/exit!");
+      assert(false, "Non-balanced monitor enter/exit! current: " PTR_FORMAT ", cur: " PTR_FORMAT, p2i(current), p2i(cur));
 #endif
       return;
     }

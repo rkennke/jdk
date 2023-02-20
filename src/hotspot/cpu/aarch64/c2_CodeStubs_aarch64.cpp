@@ -76,7 +76,7 @@ void C2CheckLockStackStub::emit(C2_MacroAssembler& masm) {
 }
 
 int C2FixAnonOMOwnerStub::max_size() const {
-  return 20;
+  return 32;
 }
 
 void C2FixAnonOMOwnerStub::emit(C2_MacroAssembler& masm) {
@@ -92,7 +92,11 @@ void C2FixAnonOMOwnerStub::emit(C2_MacroAssembler& masm) {
   __ sub(t, t, oopSize);
   __ str(t, Address(rthread, JavaThread::lock_stack_current_offset()));
 
+  // Carry over recursion count. We still have the lock-stack top location in t.
+  __ ldr(t, Address(t));
+  __ andr(t, t, LockStack::OOP_MASK);
+  __ str(t, Address(mon, ObjectMonitor::recursions_offset_in_bytes()));
+
   __ b(continuation());
 }
-
 #undef __

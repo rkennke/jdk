@@ -578,6 +578,7 @@ void ObjectSynchronizer::exit(oop object, BasicLock* lock, JavaThread* current) 
           ObjectMonitor* monitor = witness.monitor();
           assert(monitor->is_owner_anonymous(), "must be anonymous owner");
           monitor->set_owner_from_anonymous(current);
+          monitor->set_recursions(lock_stack.get_recursions(object));
           monitor->exit(current);
         }
         lock_stack.remove(object);
@@ -634,6 +635,7 @@ void ObjectSynchronizer::exit(oop object, BasicLock* lock, JavaThread* current) 
   if (UseFastLocking && monitor->is_owner_anonymous()) {
     // It must be owned by us. Pop lock object from lock stack.
     LockStack& lock_stack = current->lock_stack();
+    monitor->set_recursions(lock_stack.get_recursions(object));
     oop popped = lock_stack.pop();
     assert(popped == object, "must be owned by this thread");
     monitor->set_owner_from_anonymous(current);
@@ -1057,26 +1059,22 @@ bool ObjectSynchronizer::current_thread_holds_lock(JavaThread* current,
   markWord mark = read_stable_mark(obj);
 
   if (mark.has_locker()) {
-    tty->print_cr("stack-locked: " PTR_FORMAT, p2i(h_obj()));
     // stack-locked case, header points into owner's stack
     return current->is_lock_owned((address)mark.locker());
   }
 
   if (mark.is_fast_locked()) {
-    tty->print_cr("fast-locked: " PTR_FORMAT, p2i(h_obj()));
     // fast-locking case, see if lock is in current's lock stack
     return current->lock_stack().contains(h_obj());
   }
 
   if (mark.has_monitor()) {
-    tty->print_cr("monitor-locked: " PTR_FORMAT, p2i(h_obj()));
     // inflated monitor so header points to ObjectMonitor (tagged pointer).
     // The first stage of async deflation does not affect any field
     // used by this comparison so the ObjectMonitor* is usable here.
     ObjectMonitor* monitor = mark.monitor();
     return monitor->is_entered(current) != 0;
   }
-    tty->print_cr("unlocked-locked: " PTR_FORMAT, p2i(h_obj()));
 
   // Unlocked case, header in place
   assert(mark.is_neutral(), "sanity check");
@@ -1315,6 +1313,7 @@ ObjectMonitor* ObjectSynchronizer::inflate(Thread* current, oop object,
       assert(dmw.is_neutral(), "invariant: header=" INTPTR_FORMAT, dmw.value());
       if (UseFastLocking && inf->is_owner_anonymous() && is_lock_owned(current, object)) {
         inf->set_owner_from_anonymous(current);
+        inf->set_recursions(reinterpret_cast<JavaThread*>(current)->lock_stack().get_recursions(object));
         assert(current->is_Java_thread(), "must be Java thread");
         reinterpret_cast<JavaThread*>(current)->lock_stack().remove(object);
       }

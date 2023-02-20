@@ -760,7 +760,7 @@ void InterpreterMacroAssembler::lock_object(Register lock_reg)
 
     if (UseFastLocking) {
       ldr(tmp, Address(obj_reg, oopDesc::mark_offset_in_bytes()));
-      fast_lock(obj_reg, tmp, rscratch1, rscratch2, slow_case);
+      fast_lock(obj_reg, tmp, rscratch1, rscratch2, count, slow_case);
       b(count);
     } else {
       // Load (object->mark() | 1) into swap_reg
@@ -873,14 +873,15 @@ void InterpreterMacroAssembler::unlock_object(Register lock_reg)
       // Check for non-symmetric locking. This is allowed by the spec and the interpreter
       // must handle it.
       ldr(header_reg, Address(rthread, JavaThread::lock_stack_current_offset()));
-      sub(header_reg, header_reg, oopSize);
-      ldr(header_reg, Address(header_reg));
+      ldr(header_reg, Address(header_reg, -oopSize));
       andr(header_reg, header_reg, ~LockStack::OOP_MASK);
       cmpoop(header_reg, obj_reg);
       br(Assembler::NE, slow_case);
 
       ldr(header_reg, Address(obj_reg, oopDesc::mark_offset_in_bytes()));
-      fast_unlock(obj_reg, header_reg, swap_reg, rscratch1, slow_case);
+      // Handle monitor in runtime.
+      tbnz(header_reg, exact_log2(markWord::monitor_value), slow_case);
+      fast_unlock(obj_reg, header_reg, swap_reg, rscratch1, count, slow_case);
       b(count);
       bind(slow_case);
     } else {

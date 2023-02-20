@@ -1462,7 +1462,7 @@ void SystemDictionary::define_instance_class(InstanceKlass* k, Handle class_load
   if (!is_parallelCapable(class_loader)) {
     assert(ObjectSynchronizer::current_thread_holds_lock(THREAD,
            get_loader_lock_or_null(class_loader)),
-           "define called without lock");
+           "define called without lock: " PTR_FORMAT, p2i(get_loader_lock_or_null(class_loader)()));
   }
 
   // Check class-loading constraints. Throw exception if violation is detected.

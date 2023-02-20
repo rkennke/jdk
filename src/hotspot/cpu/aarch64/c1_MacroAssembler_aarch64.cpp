@@ -83,7 +83,9 @@ int C1_MacroAssembler::lock_object(Register hdr, Register obj, Register disp_hdr
   // Load object header
   ldr(hdr, Address(obj, hdr_offset));
   if (UseFastLocking) {
-    fast_lock(obj, hdr, rscratch1, rscratch2, slow_case, false);
+    Label success;
+    fast_lock(obj, hdr, rscratch1, rscratch2, success, slow_case, false);
+    bind(success);
   } else {
     Label done;
     // and mark it as unlocked
@@ -145,7 +147,12 @@ void C1_MacroAssembler::unlock_object(Register hdr, Register obj, Register disp_
 
   if (UseFastLocking) {
     ldr(hdr, Address(obj, oopDesc::mark_offset_in_bytes()));
-    fast_unlock(obj, hdr, rscratch1, rscratch2, slow_case);
+    // Handle monitor in runtime.
+    tst(hdr, markWord::lock_mask_in_place);
+    br(Assembler::NE, slow_case);
+    Label success;
+    fast_unlock(obj, hdr, rscratch1, rscratch2, success, slow_case);
+    bind(success);
   } else {
     // test if object header is pointing to the displaced header, and if so, restore
     // the displaced header in the object - if the object header is not pointing to
