@@ -194,14 +194,8 @@ void LIR_Assembler::arraycopy_type_check(Register src, Register src_pos, Registe
   // We don't know the array types are compatible
   if (basic_type != T_OBJECT) {
     // Simple test for basic type arrays
-    if (UseCompressedClassPointers) {
-      __ lwu(tmp, Address(src, oopDesc::klass_offset_in_bytes()));
-      __ lwu(t0, Address(dst, oopDesc::klass_offset_in_bytes()));
-    } else {
-      __ ld(tmp, Address(src, oopDesc::klass_offset_in_bytes()));
-      __ ld(t0, Address(dst, oopDesc::klass_offset_in_bytes()));
-    }
-    __ bne(tmp, t0, *stub->entry(), /* is_far */ true);
+    // TODO
+    __ cmp_klass_and_jump_2(src, dst, tmp, t1, *stub->entry());
   } else {
     // For object arrays, if src is a sub class of dst then we can
     // safely do the copy.
@@ -256,30 +250,16 @@ void LIR_Assembler::arraycopy_assert(Register src, Register dst, Register tmp, c
     // but not necessarily exactly of type default_type.
     Label known_ok, halt;
     __ mov_metadata(tmp, default_type->constant_encoding());
-    if (UseCompressedClassPointers) {
-      __ encode_klass_not_null(tmp);
-    }
+    // TODO
 
     if (basic_type != T_OBJECT) {
-      if (UseCompressedClassPointers) {
-        __ lwu(t0, Address(dst, oopDesc::klass_offset_in_bytes()));
-      } else {
-        __ ld(t0, Address(dst, oopDesc::klass_offset_in_bytes()));
-      }
-      __ bne(tmp, t0, halt);
-      if (UseCompressedClassPointers) {
-        __ lwu(t0, Address(src, oopDesc::klass_offset_in_bytes()));
-      } else {
-        __ ld(t0, Address(src, oopDesc::klass_offset_in_bytes()));
-      }
-      __ beq(tmp, t0, known_ok);
+      // TODO
+      __ cmp_klass_and_jump(dst, tmp, t0, t1, halt, false);
+      // TODO
+      __ cmp_klass_and_jump(src, tmp, t0, t1, halt, true);
     } else {
-      if (UseCompressedClassPointers) {
-        __ lwu(t0, Address(dst, oopDesc::klass_offset_in_bytes()));
-      } else {
-        __ ld(t0, Address(dst, oopDesc::klass_offset_in_bytes()));
-      }
-      __ beq(tmp, t0, known_ok);
+      // TODO
+      __ cmp_klass_and_jump(dst, tmp, t0, t1, known_ok, true);
       __ beq(src, dst, known_ok);
     }
     __ bind(halt);
@@ -314,10 +294,12 @@ void LIR_Assembler::emit_arraycopy(LIR_OpArrayCopy* op) {
   arraycopy_simple_check(src, src_pos, length, dst, dst_pos, tmp, stub, flags);
 
   if (flags & LIR_OpArrayCopy::type_check) {
+    // TODO
     arraycopy_type_check(src, src_pos, length, dst, dst_pos, tmp, stub, basic_type, flags);
   }
 
 #ifdef ASSERT
+  // TODO
   arraycopy_assert(src, dst, tmp, default_type, flags);
 #endif
 
