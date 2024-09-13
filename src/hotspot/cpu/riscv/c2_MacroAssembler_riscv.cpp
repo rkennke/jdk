@@ -3025,9 +3025,3 @@ void C2_MacroAssembler::extract_fp_v(FloatRegister dst, VectorRegister src, Basi
     vfmv_f_s(dst, tmp);
   }
 }
-
-void C2_MacroAssembler::load_nklass_compact_c2(Register dst, Address src) {
-  int offset = oopDesc::mark_offset_in_bytes() - oopDesc::klass_offset_in_bytes();
-  lw(dst, src.plus(offset));
-  srli(dst, dst, markWord::klass_shift);
-}

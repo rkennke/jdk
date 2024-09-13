@@ -1524,14 +1524,8 @@ void LIR_Assembler::emit_load_klass(LIR_OpLoadKlass* op) {
     add_debug_info_for_null_check_here(info);
   }
 
-  // TODO
   if (UseCompressedClassPointers) {
-    if (UseCompactObjectHeaders) {
-      __ ld(result, Address(obj, oopDesc::mark_offset_in_bytes()));
-      __ srli(result, result, markWord::klass_shift);
-    } else {
-      __ lwu(result, Address(obj, oopDesc::klass_offset_in_bytes()));
-    }
+    __ lwu(result, Address(obj, oopDesc::klass_offset_in_bytes()));
     __ decode_klass_not_null(result);
   } else {
     __ ld(result, Address(obj, oopDesc::klass_offset_in_bytes()));

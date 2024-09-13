@@ -246,11 +246,6 @@ class Address {
     return *this;
   }
 
-  Address& plus(int64_t offset) {
-    _nonliteral._offset += offset;
-    return *this;
-  }
-
   ~Address() = default;
 
   const Register base() const {
