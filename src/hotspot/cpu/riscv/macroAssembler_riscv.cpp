@@ -4214,8 +4214,7 @@ address MacroAssembler::ic_call(address entry, jint method_index) {
 int MacroAssembler::ic_check_size() {
   // No compressed
   return (MacroAssembler::instruction_size * (2 /* 2 loads */ + 1 /* branch */)) +
-          far_branch_size();
-          // far_branch_size() + (UseCompactObjectHeaders ? 1 : 0);
+          far_branch_size() + (UseCompactObjectHeaders ? MacroAssembler::instruction_size * 1 : 0);
 }
 
 int MacroAssembler::ic_check(int end_alignment) {
@@ -4235,11 +4234,10 @@ int MacroAssembler::ic_check(int end_alignment) {
   align(end_alignment, ic_check_size());
   int uep_offset = offset();
 
-/*  if (UseCompactObjectHeaders) {
+  if (UseCompactObjectHeaders) {
     load_nklass_compact(tmp1, receiver);
     lwu(tmp2, Address(data, CompiledICData::speculated_klass_offset()));
-  } else */
-  if (UseCompressedClassPointers) {
+  } else if (UseCompressedClassPointers) {
     lwu(tmp1, Address(receiver, oopDesc::klass_offset_in_bytes()));
     lwu(tmp2, Address(data, CompiledICData::speculated_klass_offset()));
   } else {
