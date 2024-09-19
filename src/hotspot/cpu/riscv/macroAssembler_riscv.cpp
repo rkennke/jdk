@@ -2630,11 +2630,12 @@ void MacroAssembler::load_nklass_compact(Register dst, Register src) {
 void MacroAssembler::load_klass(Register dst, Register src, Register tmp) {
   assert_different_registers(dst, tmp);
   assert_different_registers(src, tmp);
-  if (UseCompactObjectHeaders) {
-    load_nklass_compact(dst, src);
-    decode_klass_not_null(dst, tmp);
-  } else if (UseCompressedClassPointers) {
-    lwu(dst, Address(src, oopDesc::klass_offset_in_bytes()));
+  if (UseCompressedClassPointers) {
+    if (UseCompactObjectHeaders) {
+      load_nklass_compact(dst, src);
+    } else {
+      lwu(dst, Address(src, oopDesc::klass_offset_in_bytes()));
+    }
     decode_klass_not_null(dst, tmp);
   } else {
     ld(dst, Address(src, oopDesc::klass_offset_in_bytes()));
