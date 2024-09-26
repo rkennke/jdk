@@ -401,7 +401,7 @@ static void generate_string_indexof_stubs(StubGenerator *stubgen, address *fnptr
   // Only done for small haystacks
   //
   // NOTE: This code assumes that the haystack points to a java array type AND there are
-  //       at least 16 bytes of header preceeding the haystack pointer.
+  //       at least 8 bytes of header preceeding the haystack pointer.
   //
   // This means that we're copying up to 15 bytes of the header onto the stack along
   // with the haystack bytes.  After the copy completes, we adjust the haystack pointer
@@ -412,7 +412,20 @@ static void generate_string_indexof_stubs(StubGenerator *stubgen, address *fnptr
     const Register index = rax;
     const Register haystack = rbx;
 
-    // Only a single vector load/store of either 16 or 32 bytes
+    // Only a single vector load/store of either 8, 16 or 32 bytes
+    assert(arrayOopDesc::base_offset_in_bytes(T_BYTE) >= 8,
+           "need at least 8 bytes preceding the haystack");
+    if (arrayOopDesc::base_offset_in_bytes(T_BYTE) < 16) {
+      Label L_moreThan8;
+      __ cmpq(haystack_len, 0x8);
+      __ ja_b(L_moreThan8);
+      __ movq(index, COPIED_HAYSTACK_STACK_OFFSET + 0x8);
+      __ movq(XMM_TMP1, Address(haystack, haystack_len, Address::times_1, -0x8));
+      __ movq(Address(rsp, COPIED_HAYSTACK_STACK_OFFSET), XMM_TMP1);
+      __ jmpb(L_adjustHaystack);
+      __ bind(L_moreThan8);
+    }
+
     __ cmpq(haystack_len, 0x10);
     __ ja_b(L_moreThan16);
 
