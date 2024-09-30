@@ -416,33 +416,50 @@ static void generate_string_indexof_stubs(StubGenerator *stubgen, address *fnptr
     assert(arrayOopDesc::base_offset_in_bytes(T_BYTE) >= 8,
            "need at least 8 bytes preceding the haystack");
     if (arrayOopDesc::base_offset_in_bytes(T_BYTE) < 16) {
-      Label L_moreThan8;
-      __ cmpq(haystack_len, 0x8);
-      __ ja_b(L_moreThan8);
-      __ movq(index, COPIED_HAYSTACK_STACK_OFFSET + 0x8);
-      __ movq(XMM_TMP1, Address(haystack, haystack_len, Address::times_1, -0x8));
-      __ movq(Address(rsp, COPIED_HAYSTACK_STACK_OFFSET), XMM_TMP1);
+      Label L_loop;
+      // haystack_adjust = 8 - (haystack_len % 8);
+      __ movq(index, haystack_len);
+      __ andq(index, BytesPerWord - 1);
+      __ negq(index);
+      __ addq(index, BytesPerWord);
+      __ movq(XMM_TMP2, index); // Save for adjusting result.
+      __ subq(haystack, index);
+
+      // num_words (zero-based) = (haystack_len - 1) / 8;
+      __ movq(index, haystack_len);
+      __ subq(index, 1);
+      __ shrq(index, LogBytesPerWord);
+
+      // Copy 8 bytes at a time onto the stack.
+      __ bind(L_loop);
+      __ movq(XMM_TMP1, Address(haystack, index, Address::times_8));
+      __ movq(Address(rsp, index, Address::times_8), XMM_TMP1);
+      __ subq(index, 1);
+      __ jcc(Assembler::positive, L_loop);
+
+      // Adjust-back stack pointer
+      __ movq(index, XMM_TMP2);
+      __ lea(haystack, Address(rsp, index, Address::times_1));
+    } else {
+
+      __ cmpq(haystack_len, 0x10);
+      __ ja_b(L_moreThan16);
+
+      __ movq(index, COPIED_HAYSTACK_STACK_OFFSET + 0x10);
+      __ movdqu(XMM_TMP1, Address(haystack, haystack_len, Address::times_1, -0x10));
+      __ movdqu(Address(rsp, COPIED_HAYSTACK_STACK_OFFSET), XMM_TMP1);
       __ jmpb(L_adjustHaystack);
-      __ bind(L_moreThan8);
+
+      __ bind(L_moreThan16);
+      __ movq(index, COPIED_HAYSTACK_STACK_OFFSET + 0x20);
+      __ vmovdqu(XMM_TMP1, Address(haystack, haystack_len, Address::times_1, -0x20));
+      __ vmovdqu(Address(rsp, COPIED_HAYSTACK_STACK_OFFSET), XMM_TMP1);
+
+      // Point the haystack at the correct location of the first byte of the "real" haystack on the stack
+      __ bind(L_adjustHaystack);
+      __ subq(index, haystack_len);
+      __ leaq(haystack, Address(rsp, index, Address::times_1));
     }
-
-    __ cmpq(haystack_len, 0x10);
-    __ ja_b(L_moreThan16);
-
-    __ movq(index, COPIED_HAYSTACK_STACK_OFFSET + 0x10);
-    __ movdqu(XMM_TMP1, Address(haystack, haystack_len, Address::times_1, -0x10));
-    __ movdqu(Address(rsp, COPIED_HAYSTACK_STACK_OFFSET), XMM_TMP1);
-    __ jmpb(L_adjustHaystack);
-
-    __ bind(L_moreThan16);
-    __ movq(index, COPIED_HAYSTACK_STACK_OFFSET + 0x20);
-    __ vmovdqu(XMM_TMP1, Address(haystack, haystack_len, Address::times_1, -0x20));
-    __ vmovdqu(Address(rsp, COPIED_HAYSTACK_STACK_OFFSET), XMM_TMP1);
-
-    // Point the haystack at the correct location of the first byte of the "real" haystack on the stack
-    __ bind(L_adjustHaystack);
-    __ subq(index, haystack_len);
-    __ leaq(haystack, Address(rsp, index, Address::times_1));
   }
 
   // Dispatch to handlers for small needle and small haystack
