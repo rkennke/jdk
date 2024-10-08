@@ -103,7 +103,7 @@ public final class DirectCodeBuilder
             handler.accept(cb = new DirectCodeBuilder(methodInfo, constantPool, context, original, false));
             cb.buildContent();
         } catch (LabelOverflowException loe) {
-            if (context.shortJumpsOption() == ClassFile.ShortJumpsOption.FIX_SHORT_JUMPS) {
+            if (context.fixShortJumps()) {
                 handler.accept(cb = new DirectCodeBuilder(methodInfo, constantPool, context, original, true));
                 cb.buildContent();
             }
@@ -122,7 +122,7 @@ public final class DirectCodeBuilder
         setOriginal(original);
         this.methodInfo = methodInfo;
         this.transformFwdJumps = transformFwdJumps;
-        this.transformBackJumps = context.shortJumpsOption() == ClassFile.ShortJumpsOption.FIX_SHORT_JUMPS;
+        this.transformBackJumps = context.fixShortJumps();
         bytecodesBufWriter = (original instanceof CodeImpl cai) ? new BufWriterImpl(constantPool, context, cai.codeLength())
                 : new BufWriterImpl(constantPool, context);
         this.startLabel = new LabelImpl(this, 0);
@@ -190,12 +190,19 @@ public final class DirectCodeBuilder
         int pos = buf.size();
         int handlersSize = handlers.size();
         buf.writeU2(handlersSize);
+        if (handlersSize > 0) {
+            writeExceptionHandlers(buf, pos);
+        }
+    }
+
+    private void writeExceptionHandlers(BufWriterImpl buf, int pos) {
+        int handlersSize = handlers.size();
         for (AbstractPseudoInstruction.ExceptionCatchImpl h : handlers) {
             int startPc = labelToBci(h.tryStart());
             int endPc = labelToBci(h.tryEnd());
             int handlerPc = labelToBci(h.handler());
             if (startPc == -1 || endPc == -1 || handlerPc == -1) {
-                if (context.deadLabelsOption() == ClassFile.DeadLabelsOption.DROP_DEAD_LABELS) {
+                if (context.dropDeadLabels()) {
                     handlersSize--;
                 } else {
                     throw new IllegalArgumentException("Unbound label in exception handler");
@@ -219,7 +226,7 @@ public final class DirectCodeBuilder
         // Backfill branches for which Label didn't have position yet
         processDeferredLabels();
 
-        if (context.debugElementsOption() == ClassFile.DebugElementsOption.PASS_DEBUG) {
+        if (context.passDebugElements()) {
             if (!characterRanges.isEmpty()) {
                 Attribute<?> a = new UnboundAttribute.AdHocAttribute<>(Attributes.characterRangeTable()) {
 
@@ -232,7 +239,7 @@ public final class DirectCodeBuilder
                             var start = labelToBci(cr.startScope());
                             var end = labelToBci(cr.endScope());
                             if (start == -1 || end == -1) {
-                                if (context.deadLabelsOption() == ClassFile.DeadLabelsOption.DROP_DEAD_LABELS) {
+                                if (context.dropDeadLabels()) {
                                     crSize--;
                                 } else {
                                     throw new IllegalArgumentException("Unbound label in character range");
@@ -261,7 +268,7 @@ public final class DirectCodeBuilder
                         b.writeU2(lvSize);
                         for (LocalVariable l : localVariables) {
                             if (!Util.writeLocalVariable(b, l)) {
-                                if (context.deadLabelsOption() == ClassFile.DeadLabelsOption.DROP_DEAD_LABELS) {
+                                if (context.dropDeadLabels()) {
                                     lvSize--;
                                 } else {
                                     throw new IllegalArgumentException("Unbound label in local variable type");
@@ -284,7 +291,7 @@ public final class DirectCodeBuilder
                         b.writeU2(localVariableTypes.size());
                         for (LocalVariableType l : localVariableTypes) {
                             if (!Util.writeLocalVariable(b, l)) {
-                                if (context.deadLabelsOption() == ClassFile.DeadLabelsOption.DROP_DEAD_LABELS) {
+                                if (context.dropDeadLabels()) {
                                     lvtSize--;
                                 } else {
                                     throw new IllegalArgumentException("Unbound label in local variable type");
@@ -357,24 +364,21 @@ public final class DirectCodeBuilder
                 }
 
                 if (codeAndExceptionsMatch(codeLength)) {
-                    switch (context.stackMapsOption()) {
-                        case STACK_MAPS_WHEN_REQUIRED -> {
-                            attributes.withAttribute(original.findAttribute(Attributes.stackMapTable()).orElse(null));
-                            writeCounters(true, buf);
-                        }
-                        case GENERATE_STACK_MAPS ->
-                            generateStackMaps(buf);
-                        case DROP_STACK_MAPS ->
-                            writeCounters(true, buf);
+                    if (context.stackMapsWhenRequired()) {
+                        attributes.withAttribute(original.findAttribute(Attributes.stackMapTable()).orElse(null));
+                        writeCounters(true, buf);
+                    } else if (context.generateStackMaps()) {
+                        generateStackMaps(buf);
+                    } else if (context.dropStackMaps()) {
+                        writeCounters(true, buf);
                     }
                 } else {
-                    switch (context.stackMapsOption()) {
-                        case STACK_MAPS_WHEN_REQUIRED ->
-                            tryGenerateStackMaps(false, buf);
-                        case GENERATE_STACK_MAPS ->
-                            generateStackMaps(buf);
-                        case DROP_STACK_MAPS ->
-                            writeCounters(false, buf);
+                    if (context.stackMapsWhenRequired()) {
+                        tryGenerateStackMaps(false, buf);
+                    } else if (context.generateStackMaps()) {
+                        generateStackMaps(buf);
+                    } else if (context.dropStackMaps()) {
+                        writeCounters(false, buf);
                     }
                 }
 
@@ -485,9 +489,11 @@ public final class DirectCodeBuilder
     // Instruction writing
 
     public void writeBytecode(Opcode opcode) {
-        if (opcode.isWide())
-            bytecodesBufWriter.writeU1(ClassFile.WIDE);
-        bytecodesBufWriter.writeU1(opcode.bytecode() & 0xFF);
+        if (opcode.isWide()) {
+            bytecodesBufWriter.writeU2(opcode.bytecode());
+        } else {
+            bytecodesBufWriter.writeU1(opcode.bytecode());
+        }
     }
 
     public void writeLocalVar(Opcode opcode, int localVar) {
@@ -500,12 +506,12 @@ public final class DirectCodeBuilder
         }
     }
 
-    public void writeIncrement(int slot, int val) {
-        Opcode opcode = (slot < 256 && val < 128 && val > -127)
-                        ? IINC
-                        : IINC_W;
-        writeBytecode(opcode);
-        if (opcode.isWide()) {
+    public void writeIncrement(boolean wide, int slot, int val) {
+        if (wide) {
+            bytecodesBufWriter.writeU1(RawBytecodeHelper.WIDE);
+        }
+        bytecodesBufWriter.writeU1(RawBytecodeHelper.IINC);
+        if (wide) {
             bytecodesBufWriter.writeU2(slot);
             bytecodesBufWriter.writeU2(val);
         } else {
@@ -1210,7 +1216,7 @@ public final class DirectCodeBuilder
 
     @Override
     public CodeBuilder iinc(int slot, int val) {
-        writeIncrement(slot, val);
+        writeIncrement(validateAndIsWideIinc(slot, val), slot, val);
         return this;
     }
 

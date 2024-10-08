@@ -118,8 +118,8 @@ Klass* oopDesc::klass_or_null_acquire() const {
   if (UseCompactObjectHeaders) {
     return mark_acquire().klass();
   } else if (UseCompressedClassPointers) {
-    narrowKlass nklass = Atomic::load_acquire(&_metadata._compressed_klass);
-    return CompressedKlassPointers::decode(nklass);
+    narrowKlass narrow_klass = Atomic::load_acquire(&_metadata._compressed_klass);
+    return CompressedKlassPointers::decode(narrow_klass);
   } else {
     return Atomic::load_acquire(&_metadata._klass);
   }
@@ -158,10 +158,8 @@ void oopDesc::release_set_klass(HeapWord* mem, Klass* k) {
 }
 
 void oopDesc::set_klass_gap(HeapWord* mem, int v) {
-  assert(!UseCompactObjectHeaders, "don't set Klass* gap with compact headers");
-  if (UseCompressedClassPointers) {
-    *(int*)(((char*)mem) + klass_gap_offset_in_bytes()) = v;
-  }
+  assert(has_klass_gap(), "precondition");
+  *(int*)(((char*)mem) + klass_gap_offset_in_bytes()) = v;
 }
 
 bool oopDesc::is_a(Klass* k) const {
@@ -209,7 +207,7 @@ size_t oopDesc::size_given_klass(Klass* klass)  {
       // skipping the intermediate round to HeapWordSize.
       s = align_up(size_in_bytes, MinObjAlignmentInBytes) / HeapWordSize;
 
-      assert(s == klass->oop_size(this) || size_might_change(klass), "wrong array object size");
+      assert(s == klass->oop_size(this), "wrong array object size");
     } else {
       // Must be zero, so bite the bullet and take the virtual call.
       s = klass->oop_size(this);

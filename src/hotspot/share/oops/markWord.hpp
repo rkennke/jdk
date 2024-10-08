@@ -46,7 +46,7 @@
 //
 //  64 bits (with compact headers):
 //  -------------------------------
-//  nklass:22 hash:31 -->| unused_gap:4  age:4  self-fwd:1  lock:2 (normal object)
+//  klass:22  hash:31 -->| unused_gap:4  age:4  self-fwd:1  lock:2 (normal object)
 //
 //  - hash contains the identity hash value: largest value is
 //    31 bits, see os::random().  Also, 64-bit vm's require
@@ -130,9 +130,9 @@ class markWord {
 
 #ifdef _LP64
   // Used only with compact headers:
-  // We store nKlass in the bits 43 to 64.
+  // We store the (narrow) Klass* in the bits 43 to 64.
 
-  // These are for bit-precise extraction of the nKlass from the 64-bit Markword
+  // These are for bit-precise extraction of the narrow Klass* from the 64-bit Markword
   static constexpr int klass_shift                = hash_shift + hash_bits;
   static constexpr int klass_bits                 = 22;
   static constexpr uintptr_t klass_mask           = right_n_bits(klass_bits);
@@ -168,7 +168,6 @@ class markWord {
     // Returns true for normal forwarded (0b011) and self-forwarded (0b1xx).
     return mask_bits(value(), lock_mask_in_place | self_fwd_mask_in_place) >= static_cast<intptr_t>(marked_value);
   }
-
   bool is_neutral()  const {  // Not locked, or marked - a "clean" neutral state
     return (mask_bits(value(), lock_mask_in_place) == unlocked_value);
   }
@@ -286,8 +285,7 @@ class markWord {
   inline Klass* klass_or_null() const;
   inline Klass* klass_without_asserts() const;
   inline narrowKlass narrow_klass() const;
-  inline markWord set_narrow_klass(narrowKlass nklass) const;
-  inline markWord set_klass(Klass* klass) const;
+  inline markWord set_narrow_klass(narrowKlass narrow_klass) const;
 
   // Prototype mark for initialization
   static markWord prototype() {
