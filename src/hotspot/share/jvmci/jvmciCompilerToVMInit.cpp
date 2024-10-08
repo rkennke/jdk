@@ -56,6 +56,8 @@
 #include "runtime/stubRoutines.hpp"
 #include "utilities/resourceHash.hpp"
 
+int CompilerToVM::Data::oopDesc_klass_offset_in_bytes;
+int CompilerToVM::Data::arrayOopDesc_length_offset_in_bytes;
 
 int CompilerToVM::Data::Klass_vtable_start_offset;
 int CompilerToVM::Data::Klass_vtable_length_offset;
@@ -135,6 +137,7 @@ int CompilerToVM::Data::sizeof_ZStoreBarrierEntry = sizeof(ZStoreBarrierEntry);
 address CompilerToVM::Data::dsin;
 address CompilerToVM::Data::dcos;
 address CompilerToVM::Data::dtan;
+address CompilerToVM::Data::dtanh;
 address CompilerToVM::Data::dexp;
 address CompilerToVM::Data::dlog;
 address CompilerToVM::Data::dlog10;
@@ -148,6 +151,9 @@ int CompilerToVM::Data::data_section_item_alignment;
 JVMTI_ONLY( int* CompilerToVM::Data::_should_notify_object_alloc; )
 
 void CompilerToVM::Data::initialize(JVMCI_TRAPS) {
+  oopDesc_klass_offset_in_bytes = oopDesc::klass_offset_in_bytes();
+  arrayOopDesc_length_offset_in_bytes = arrayOopDesc::length_offset_in_bytes();
+
   Klass_vtable_start_offset = in_bytes(Klass::vtable_start_offset());
   Klass_vtable_length_offset = in_bytes(Klass::vtable_length_offset());
 
@@ -268,6 +274,19 @@ void CompilerToVM::Data::initialize(JVMCI_TRAPS) {
   SET_TRIGFUNC(dpow);
 
 #undef SET_TRIGFUNC
+
+#define SET_TRIGFUNC_OR_NULL(name)                              \
+  if (StubRoutines::name() != nullptr) {                        \
+    name = StubRoutines::name();                                \
+  } else {                                                      \
+    name = nullptr;                                             \
+  }
+
+  SET_TRIGFUNC_OR_NULL(dtanh);
+
+#undef SET_TRIGFUNC_OR_NULL
+
+
 }
 
 static jboolean is_c1_supported(vmIntrinsics::ID id){

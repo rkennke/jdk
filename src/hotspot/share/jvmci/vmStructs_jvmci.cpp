@@ -56,6 +56,9 @@
 #endif
 
 #define VM_STRUCTS(nonstatic_field, static_field, unchecked_nonstatic_field, volatile_nonstatic_field) \
+  static_field(CompilerToVM::Data,             oopDesc_klass_offset_in_bytes,          int)                                          \
+  static_field(CompilerToVM::Data,             arrayOopDesc_length_offset_in_bytes,    int)                                          \
+                                                                                                                                     \
   static_field(CompilerToVM::Data,             Klass_vtable_start_offset,              int)                                          \
   static_field(CompilerToVM::Data,             Klass_vtable_length_offset,             int)                                          \
                                                                                                                                      \
@@ -246,6 +249,7 @@
   nonstatic_field(JavaThread,                  _lock_stack,                                   LockStack)                             \
   nonstatic_field(JavaThread,                  _om_cache,                                     OMCache)                               \
   nonstatic_field(JavaThread,                  _cont_entry,                                   ContinuationEntry*)                    \
+  nonstatic_field(JavaThread,                  _unlocked_inflated_monitor,                    ObjectMonitor*)                        \
   JVMTI_ONLY(nonstatic_field(JavaThread,       _is_in_VTMS_transition,                        bool))                                 \
   JVMTI_ONLY(nonstatic_field(JavaThread,       _is_in_tmp_VTMS_transition,                    bool))                                 \
   JVMTI_ONLY(nonstatic_field(JavaThread,       _is_disable_suspend,                           bool))                                 \
@@ -275,6 +279,7 @@
   nonstatic_field(Klass,                       _bitmap,                                       uintx)                                 \
   nonstatic_field(Klass,                       _hash_slot,                                    uint8_t)                               \
   nonstatic_field(Klass,                       _misc_flags._flags,                            u1)                                    \
+  nonstatic_field(Klass,                       _prototype_header,                             markWord)                              \
                                                                                                                                      \
   nonstatic_field(LocalVariableTableElement,   start_bci,                                     u2)                                    \
   nonstatic_field(LocalVariableTableElement,   length,                                        u2)                                    \
@@ -794,6 +799,7 @@
   declare_constant(InvocationCounter::count_increment)                    \
   declare_constant(InvocationCounter::count_shift)                        \
                                                                           \
+  declare_constant(markWord::klass_shift)                                 \
   declare_constant(markWord::hash_shift)                                  \
   declare_constant(markWord::monitor_value)                               \
                                                                           \

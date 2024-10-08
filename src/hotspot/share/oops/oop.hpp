@@ -331,13 +331,13 @@ class oopDesc {
   static int klass_offset_in_bytes()     {
 #ifdef _LP64
     if (UseCompactObjectHeaders) {
-      // NOTE: The only place where this is used with compact headers is
-      // the C2 compiler, and even there we don't use it to access the (narrow)Klass*
+      // NOTE: The only places where this is used with compact headers are the C2
+      // compiler and JVMCI, and even there we don't use it to access the (narrow)Klass*
       // directly. It is used only as a placeholder to identify the special memory slice
-      // of LoadNKlass instructions. This value could be any value that is not a valid
+      // containing Klass* info. This value could be any value that is not a valid
       // field offset. Use an offset halfway into the markWord, as the markWord is never
-      // partially loaded from C2.
-      return 4;
+      // partially loaded from C2 and JVMCI.
+      return mark_offset_in_bytes() + 4;
     } else
 #endif
     {
@@ -346,7 +346,6 @@ class oopDesc {
   }
   static int klass_gap_offset_in_bytes() {
     assert(has_klass_gap(), "only applicable to compressed klass pointers");
-    assert(!UseCompactObjectHeaders, "don't use klass_gap_offset_in_bytes() with compact headers");
     return klass_offset_in_bytes() + sizeof(narrowKlass);
   }
 
@@ -364,8 +363,6 @@ class oopDesc {
 
   // for error reporting
   static void* load_oop_raw(oop obj, int offset);
-
-  DEBUG_ONLY(bool size_might_change(Klass* klass);)
 };
 
 // An oopDesc is not initialized via a constructor.  Space is allocated in

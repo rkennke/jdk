@@ -25,8 +25,8 @@
 #ifndef SHARE_OOPS_MARKWORD_INLINE_HPP
 #define SHARE_OOPS_MARKWORD_INLINE_HPP
 
-#include "oops/markWord.hpp"
 #include "oops/compressedOops.inline.hpp"
+#include "oops/markWord.hpp"
 
 narrowKlass markWord::narrow_klass() const {
 #ifdef _LP64
@@ -38,10 +38,10 @@ narrowKlass markWord::narrow_klass() const {
 #endif
 }
 
-markWord markWord::set_narrow_klass(narrowKlass nklass) const {
+markWord markWord::set_narrow_klass(narrowKlass narrow_klass) const {
 #ifdef _LP64
   assert(UseCompactObjectHeaders, "only used with compact object headers");
-  return markWord((value() & ~klass_mask_in_place) | ((uintptr_t) nklass << klass_shift));
+  return markWord((value() & ~klass_mask_in_place) | ((uintptr_t) narrow_klass << klass_shift));
 #else
   ShouldNotReachHere();
   return markWord(0);
@@ -75,18 +75,6 @@ Klass* markWord::klass_without_asserts() const {
 #else
   ShouldNotReachHere();
   return nullptr;
-#endif
-}
-
-markWord markWord::set_klass(Klass* klass) const {
-#ifdef _LP64
-  assert(UseCompactObjectHeaders, "only used with compact object headers");
-  assert(UseCompressedClassPointers, "expect compressed klass pointers");
-  narrowKlass nklass = CompressedKlassPointers::encode(const_cast<Klass*>(klass));
-  return set_narrow_klass(nklass);
-#else
-  ShouldNotReachHere();
-  return markWord();
 #endif
 }
 

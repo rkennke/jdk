@@ -3573,6 +3573,9 @@ void StubGenerator::generate_libm_stubs() {
     if (vmIntrinsics::is_intrinsic_available(vmIntrinsics::_dtan)) {
       StubRoutines::_dtan = generate_libmTan(); // from stubGenerator_x86_64_tan.cpp
     }
+    if (vmIntrinsics::is_intrinsic_available(vmIntrinsics::_dtanh)) {
+      StubRoutines::_dtanh = generate_libmTanh(); // from stubGenerator_x86_64_tanh.cpp
+    }
     if (vmIntrinsics::is_intrinsic_available(vmIntrinsics::_dexp)) {
       StubRoutines::_dexp = generate_libmExp(); // from stubGenerator_x86_64_exp.cpp
     }
@@ -4004,7 +4007,7 @@ void StubGenerator::generate_compiler_stubs() {
   generate_chacha_stubs();
 
 #ifdef COMPILER2
-  if ((UseAVX == 2) && EnableX86ECoreOpts && !UseCompactObjectHeaders) {
+  if ((UseAVX == 2) && EnableX86ECoreOpts) {
     generate_string_indexof(StubRoutines::_string_indexof_array);
   }
 #endif

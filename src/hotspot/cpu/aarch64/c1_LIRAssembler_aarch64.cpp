@@ -321,19 +321,19 @@ void LIR_Assembler::deoptimize_trap(CodeEmitInfo *info) {
 
   switch (patching_id(info)) {
   case PatchingStub::access_field_id:
-    target = Runtime1::entry_for(Runtime1::access_field_patching_id);
+    target = Runtime1::entry_for(C1StubId::access_field_patching_id);
     reloc_type = relocInfo::section_word_type;
     break;
   case PatchingStub::load_klass_id:
-    target = Runtime1::entry_for(Runtime1::load_klass_patching_id);
+    target = Runtime1::entry_for(C1StubId::load_klass_patching_id);
     reloc_type = relocInfo::metadata_type;
     break;
   case PatchingStub::load_mirror_id:
-    target = Runtime1::entry_for(Runtime1::load_mirror_patching_id);
+    target = Runtime1::entry_for(C1StubId::load_mirror_patching_id);
     reloc_type = relocInfo::oop_type;
     break;
   case PatchingStub::load_appendix_id:
-    target = Runtime1::entry_for(Runtime1::load_appendix_patching_id);
+    target = Runtime1::entry_for(C1StubId::load_appendix_patching_id);
     reloc_type = relocInfo::oop_type;
     break;
   default: ShouldNotReachHere();
@@ -375,7 +375,7 @@ int LIR_Assembler::emit_exception_handler() {
   __ verify_not_null_oop(r0);
 
   // search an exception handler (r0: exception oop, r3: throwing pc)
-  __ far_call(RuntimeAddress(Runtime1::entry_for(Runtime1::handle_exception_from_callee_id)));
+  __ far_call(RuntimeAddress(Runtime1::entry_for(C1StubId::handle_exception_from_callee_id)));
   __ should_not_reach_here();
   guarantee(code_offset() - offset <= exception_handler_size(), "overflow");
   __ end_a_stub();
@@ -432,7 +432,7 @@ int LIR_Assembler::emit_unwind_handler() {
   // remove the activation and dispatch to the unwind handler
   __ block_comment("remove_frame and dispatch to the unwind handler");
   __ remove_frame(initial_frame_size_in_bytes());
-  __ far_jump(RuntimeAddress(Runtime1::entry_for(Runtime1::unwind_exception_id)));
+  __ far_jump(RuntimeAddress(Runtime1::entry_for(C1StubId::unwind_exception_id)));
 
   // Emit the slow path assembly
   if (stub != nullptr) {
@@ -875,19 +875,19 @@ void LIR_Assembler::klass2reg_with_patching(Register reg, CodeEmitInfo* info) {
 
   switch (patching_id(info)) {
   case PatchingStub::access_field_id:
-    target = Runtime1::entry_for(Runtime1::access_field_patching_id);
+    target = Runtime1::entry_for(C1StubId::access_field_patching_id);
     reloc_type = relocInfo::section_word_type;
     break;
   case PatchingStub::load_klass_id:
-    target = Runtime1::entry_for(Runtime1::load_klass_patching_id);
+    target = Runtime1::entry_for(C1StubId::load_klass_patching_id);
     reloc_type = relocInfo::metadata_type;
     break;
   case PatchingStub::load_mirror_id:
-    target = Runtime1::entry_for(Runtime1::load_mirror_patching_id);
+    target = Runtime1::entry_for(C1StubId::load_mirror_patching_id);
     reloc_type = relocInfo::oop_type;
     break;
   case PatchingStub::load_appendix_id:
-    target = Runtime1::entry_for(Runtime1::load_appendix_patching_id);
+    target = Runtime1::entry_for(C1StubId::load_appendix_patching_id);
     reloc_type = relocInfo::oop_type;
     break;
   default: ShouldNotReachHere();
@@ -1356,7 +1356,7 @@ void LIR_Assembler::emit_typecheck_helper(LIR_OpTypeCheck *op, Label* success, L
         __ br(Assembler::EQ, *success_target);
 
         __ stp(klass_RInfo, k_RInfo, Address(__ pre(sp, -2 * wordSize)));
-        __ far_call(RuntimeAddress(Runtime1::entry_for(Runtime1::slow_subtype_check_id)));
+        __ far_call(RuntimeAddress(Runtime1::entry_for(C1StubId::slow_subtype_check_id)));
         __ ldr(klass_RInfo, Address(__ post(sp, 2 * wordSize)));
         // result is a boolean
         __ cbzw(klass_RInfo, *failure_target);
@@ -1367,7 +1367,7 @@ void LIR_Assembler::emit_typecheck_helper(LIR_OpTypeCheck *op, Label* success, L
       __ check_klass_subtype_fast_path(klass_RInfo, k_RInfo, Rtmp1, success_target, failure_target, nullptr);
       // call out-of-line instance of __ check_klass_subtype_slow_path(...):
       __ stp(klass_RInfo, k_RInfo, Address(__ pre(sp, -2 * wordSize)));
-      __ far_call(RuntimeAddress(Runtime1::entry_for(Runtime1::slow_subtype_check_id)));
+      __ far_call(RuntimeAddress(Runtime1::entry_for(C1StubId::slow_subtype_check_id)));
       __ ldp(k_RInfo, klass_RInfo, Address(__ post(sp, 2 * wordSize)));
       // result is a boolean
       __ cbz(k_RInfo, *failure_target);
@@ -1446,7 +1446,7 @@ void LIR_Assembler::emit_opTypeCheck(LIR_OpTypeCheck* op) {
     __ check_klass_subtype_fast_path(klass_RInfo, k_RInfo, Rtmp1, success_target, failure_target, nullptr);
     // call out-of-line instance of __ check_klass_subtype_slow_path(...):
     __ stp(klass_RInfo, k_RInfo, Address(__ pre(sp, -2 * wordSize)));
-    __ far_call(RuntimeAddress(Runtime1::entry_for(Runtime1::slow_subtype_check_id)));
+    __ far_call(RuntimeAddress(Runtime1::entry_for(C1StubId::slow_subtype_check_id)));
     __ ldp(k_RInfo, klass_RInfo, Address(__ post(sp, 2 * wordSize)));
     // result is a boolean
     __ cbzw(k_RInfo, *failure_target);
@@ -2035,7 +2035,7 @@ void LIR_Assembler::throw_op(LIR_Opr exceptionPC, LIR_Opr exceptionOop, CodeEmit
   // exception object is not added to oop map by LinearScan
   // (LinearScan assumes that no oops are in fixed registers)
   info->add_register_oop(exceptionOop);
-  Runtime1::StubID unwind_id;
+  C1StubId unwind_id;
 
   // get current pc information
   // pc is only needed if the method has an exception handler, the unwind code does not need it.
@@ -2054,9 +2054,9 @@ void LIR_Assembler::throw_op(LIR_Opr exceptionPC, LIR_Opr exceptionOop, CodeEmit
   __ verify_not_null_oop(r0);
   // search an exception handler (r0: exception oop, r3: throwing pc)
   if (compilation()->has_fpu_code()) {
-    unwind_id = Runtime1::handle_exception_id;
+    unwind_id = C1StubId::handle_exception_id;
   } else {
-    unwind_id = Runtime1::handle_exception_nofpu_id;
+    unwind_id = C1StubId::handle_exception_nofpu_id;
   }
   __ far_call(RuntimeAddress(Runtime1::entry_for(unwind_id)));
 
@@ -2306,7 +2306,7 @@ void LIR_Assembler::emit_arraycopy(LIR_OpArrayCopy* op) {
     // We don't know the array types are compatible
     if (basic_type != T_OBJECT) {
       // Simple test for basic type arrays
-      __ cmp_klass(src, dst, tmp, rscratch1);
+      __ cmp_klasses_from_objects(src, dst, tmp, rscratch1);
       __ br(Assembler::NE, *stub->entry());
     } else {
       // For object arrays, if src is a sub class of dst then we can
@@ -2327,7 +2327,7 @@ void LIR_Assembler::emit_arraycopy(LIR_OpArrayCopy* op) {
       __ check_klass_subtype_fast_path(src, dst, tmp, &cont, &slow, nullptr);
 
       __ PUSH(src, dst);
-      __ far_call(RuntimeAddress(Runtime1::entry_for(Runtime1::slow_subtype_check_id)));
+      __ far_call(RuntimeAddress(Runtime1::entry_for(C1StubId::slow_subtype_check_id)));
       __ POP(src, dst);
 
       __ cbnz(src, cont);
@@ -2518,17 +2518,7 @@ void LIR_Assembler::emit_load_klass(LIR_OpLoadKlass* op) {
     add_debug_info_for_null_check_here(info);
   }
 
-  if (UseCompressedClassPointers) {
-    if (UseCompactObjectHeaders) {
-      __ ldr(result, Address(obj, oopDesc::mark_offset_in_bytes()));
-      __ lsr(result, result, markWord::klass_shift);
-    } else {
-      __ ldrw(result, Address (obj, oopDesc::klass_offset_in_bytes()));
-    }
-    __ decode_klass_not_null(result);
-  } else {
-    __ ldr(result, Address (obj, oopDesc::klass_offset_in_bytes()));
-  }
+  __ load_klass(result, obj);
 }
 
 void LIR_Assembler::emit_profile_call(LIR_OpProfileCall* op) {

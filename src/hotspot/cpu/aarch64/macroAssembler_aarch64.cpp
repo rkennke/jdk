@@ -1025,7 +1025,7 @@ int MacroAssembler::ic_check(int end_alignment) {
   int uep_offset = offset();
 
   if (UseCompactObjectHeaders) {
-    load_nklass_compact(tmp1, receiver);
+    load_narrow_klass_compact(tmp1, receiver);
     ldrw(tmp2, Address(data, CompiledICData::speculated_klass_offset()));
     cmpw(tmp1, tmp2);
   } else if (UseCompressedClassPointers) {
@@ -2972,7 +2972,7 @@ void MacroAssembler::verify_heapbase(const char* msg) {
   if (CheckCompressedOops) {
     Label ok;
     push(1 << rscratch1->encoding(), sp); // cmpptr trashes rscratch1
-    cmpptr(rheapbase, ExternalAddress(CompressedOops::ptrs_base_addr()));
+    cmpptr(rheapbase, ExternalAddress(CompressedOops::base_addr()));
     br(Assembler::EQ, ok);
     stop(msg);
     bind(ok);
@@ -3138,9 +3138,9 @@ void MacroAssembler::reinit_heapbase()
 {
   if (UseCompressedOops) {
     if (Universe::is_fully_initialized()) {
-      mov(rheapbase, CompressedOops::ptrs_base());
+      mov(rheapbase, CompressedOops::base());
     } else {
-      lea(rheapbase, ExternalAddress(CompressedOops::ptrs_base_addr()));
+      lea(rheapbase, ExternalAddress(CompressedOops::base_addr()));
       ldr(rheapbase, Address(rheapbase));
     }
   }
@@ -4847,8 +4847,8 @@ void MacroAssembler::load_method_holder(Register holder, Register method) {
 // Preserves all registers (incl src, rscratch1 and rscratch2).
 // Input:
 // src - the oop we want to load the klass from.
-// dst - output nklass.
-void MacroAssembler::load_nklass_compact(Register dst, Register src) {
+// dst - output narrow klass.
+void MacroAssembler::load_narrow_klass_compact(Register dst, Register src) {
   assert(UseCompactObjectHeaders, "expects UseCompactObjectHeaders");
   ldr(dst, Address(src, oopDesc::mark_offset_in_bytes()));
   lsr(dst, dst, markWord::klass_shift);
@@ -4856,7 +4856,7 @@ void MacroAssembler::load_nklass_compact(Register dst, Register src) {
 
 void MacroAssembler::load_klass(Register dst, Register src) {
   if (UseCompactObjectHeaders) {
-    load_nklass_compact(dst, src);
+    load_narrow_klass_compact(dst, src);
     decode_klass_not_null(dst);
   } else if (UseCompressedClassPointers) {
     ldrw(dst, Address(src, oopDesc::klass_offset_in_bytes()));
@@ -4913,42 +4913,42 @@ void MacroAssembler::load_mirror(Register dst, Register method, Register tmp1, R
   resolve_oop_handle(dst, tmp1, tmp2);
 }
 
-void MacroAssembler::cmp_klass(Register oop, Register trial_klass, Register tmp) {
-  assert_different_registers(oop, trial_klass, tmp);
+void MacroAssembler::cmp_klass(Register obj, Register klass, Register tmp) {
+  assert_different_registers(obj, klass, tmp);
   if (UseCompressedClassPointers) {
     if (UseCompactObjectHeaders) {
-      load_nklass_compact(tmp, oop);
+      load_narrow_klass_compact(tmp, obj);
     } else {
-      ldrw(tmp, Address(oop, oopDesc::klass_offset_in_bytes()));
+      ldrw(tmp, Address(obj, oopDesc::klass_offset_in_bytes()));
     }
     if (CompressedKlassPointers::base() == nullptr) {
-      cmp(trial_klass, tmp, LSL, CompressedKlassPointers::shift());
+      cmp(klass, tmp, LSL, CompressedKlassPointers::shift());
       return;
     } else if (((uint64_t)CompressedKlassPointers::base() & 0xffffffff) == 0
                && CompressedKlassPointers::shift() == 0) {
       // Only the bottom 32 bits matter
-      cmpw(trial_klass, tmp);
+      cmpw(klass, tmp);
       return;
     }
     decode_klass_not_null(tmp);
   } else {
-    ldr(tmp, Address(oop, oopDesc::klass_offset_in_bytes()));
+    ldr(tmp, Address(obj, oopDesc::klass_offset_in_bytes()));
   }
-  cmp(trial_klass, tmp);
+  cmp(klass, tmp);
 }
 
-void MacroAssembler::cmp_klass(Register src, Register dst, Register tmp1, Register tmp2) {
+void MacroAssembler::cmp_klasses_from_objects(Register obj1, Register obj2, Register tmp1, Register tmp2) {
   if (UseCompactObjectHeaders) {
-    load_nklass_compact(tmp1, src);
-    load_nklass_compact(tmp2, dst);
+    load_narrow_klass_compact(tmp1, obj1);
+    load_narrow_klass_compact(tmp2,  obj2);
     cmpw(tmp1, tmp2);
   } else if (UseCompressedClassPointers) {
-    ldrw(tmp1, Address(src, oopDesc::klass_offset_in_bytes()));
-    ldrw(tmp2, Address(dst, oopDesc::klass_offset_in_bytes()));
+    ldrw(tmp1, Address(obj1, oopDesc::klass_offset_in_bytes()));
+    ldrw(tmp2, Address(obj2, oopDesc::klass_offset_in_bytes()));
     cmpw(tmp1, tmp2);
   } else {
-    ldr(tmp1, Address(src, oopDesc::klass_offset_in_bytes()));
-    ldr(tmp2, Address(dst, oopDesc::klass_offset_in_bytes()));
+    ldr(tmp1, Address(obj1, oopDesc::klass_offset_in_bytes()));
+    ldr(tmp2, Address(obj2, oopDesc::klass_offset_in_bytes()));
     cmp(tmp1, tmp2);
   }
 }
@@ -5121,8 +5121,8 @@ MacroAssembler::KlassDecodeMode MacroAssembler::klass_decode_mode() {
 
   if (operand_valid_for_logical_immediate(
         /*is32*/false, (uint64_t)CompressedKlassPointers::base())) {
-    const uint64_t range_mask =
-      (1ULL << log2i(CompressedKlassPointers::range())) - 1;
+    const size_t range = CompressedKlassPointers::klass_range_end() - CompressedKlassPointers::base();
+    const uint64_t range_mask = (1ULL << log2i(range)) - 1;
     if (((uint64_t)CompressedKlassPointers::base() & range_mask) == 0) {
       return (_klass_decode_mode = KlassDecodeXor);
     }

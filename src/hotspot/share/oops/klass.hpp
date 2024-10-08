@@ -160,6 +160,7 @@ class Klass : public Metadata {
   // Provide access the corresponding instance java.lang.ClassLoader.
   ClassLoaderData* _class_loader_data;
 
+  markWord _prototype_header;   // Used to initialize objects' header
 
   int _vtable_len;              // vtable length. This field may be read very often when we
                                 // have lots of itable dispatches (e.g., lambdas and streams).
@@ -168,8 +169,6 @@ class Klass : public Metadata {
   AccessFlags _access_flags;    // Access flags. The class/interface distinction is stored here.
                                 // Some flags created by the JVM, not in the class file itself,
                                 // are in _misc_flags below.
-
-  markWord _prototype_header;   // Used to initialize objects' header
 
   JFR_ONLY(DEFINE_TRACE_ID_FIELD;)
 
@@ -207,8 +206,6 @@ protected:
 
   Klass(KlassKind kind);
   Klass();
-
-  void* operator new(size_t size, ClassLoaderData* loader_data, size_t word_size, TRAPS) throw();
 
  public:
   int kind() { return _kind; }
@@ -714,10 +711,7 @@ protected:
   bool is_cloneable() const;
   void set_is_cloneable();
 
-  markWord prototype_header() const {
-    assert(UseCompactObjectHeaders, "only use with compact object headers");
-    return _prototype_header;
-  }
+  inline markWord prototype_header() const;
   inline void set_prototype_header(markWord header);
   static ByteSize prototype_header_offset() { return in_ByteSize(offset_of(Klass, _prototype_header)); }
 
@@ -775,6 +769,10 @@ protected:
   static bool is_valid(Klass* k);
 
   static void on_secondary_supers_verification_failure(Klass* super, Klass* sub, bool linear_result, bool table_result, const char* msg);
+
+  // Returns true if this Klass needs to be addressable via narrow Klass ID.
+  inline bool needs_narrow_id() const;
+
 };
 
 #endif // SHARE_OOPS_KLASS_HPP

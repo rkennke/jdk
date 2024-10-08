@@ -93,18 +93,18 @@ public class CompressedClassPointersEncodingScheme {
         }
 
         // Test ccs starting *below* 4G, but extending upwards beyond 4G. All platforms except aarch64 should pick
-        // zero based encoding.
-        if (Platform.isAArch64()) {
-            long forceAddress = 0xC000_0000L; // make sure we have a valid EOR immediate
-            test(forceAddress, false, G + (128 * M), forceAddress, 0);
-        } else {
+        // zero based encoding. On aarch64, this test is excluded since the only valid mode would be XOR, but bit
+        // pattern for base and bit pattern would overlap.
+        if (!Platform.isAArch64()) {
             test(4 * G - 128 * M, false, 2 * 128 * M, 0, 3);
         }
         // add more...
 
-        // Compact Object Header Mode with tiny classpointers
-        // On all platforms we expect the VM to chose the smallest possible shift value needed to cover the encoding range
-        long forceAddress = 30 * G;
+        // Compact Object Header Mode:
+        // On all platforms we expect the VM to chose the smallest possible shift value needed to cover
+        // the encoding range. We expect the encoding Base to start at the class space start - but to enforce that,
+        // we choose a high address.
+        long forceAddress = 32 * G;
 
         long ccsSize = 128 * M;
         int expectedShift = 6;

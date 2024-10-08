@@ -1369,7 +1369,7 @@ int MacroAssembler::ic_check(int end_alignment) {
 
 #ifdef _LP64
   if (UseCompactObjectHeaders) {
-    load_nklass_compact(temp, receiver);
+    load_narrow_klass_compact(temp, receiver);
     cmpl(temp, Address(data, CompiledICData::speculated_klass_offset()));
   } else
 #endif
@@ -5681,7 +5681,7 @@ void MacroAssembler::load_method_holder(Register holder, Register method) {
 }
 
 #ifdef _LP64
-void MacroAssembler::load_nklass_compact(Register dst, Register src) {
+void MacroAssembler::load_narrow_klass_compact(Register dst, Register src) {
   assert(UseCompactObjectHeaders, "expect compact object headers");
   movq(dst, Address(src, oopDesc::mark_offset_in_bytes()));
   shrq(dst, markWord::klass_shift);
@@ -5689,12 +5689,11 @@ void MacroAssembler::load_nklass_compact(Register dst, Register src) {
 #endif
 
 void MacroAssembler::load_klass(Register dst, Register src, Register tmp) {
-  BLOCK_COMMENT("load_klass");
   assert_different_registers(src, tmp);
   assert_different_registers(dst, tmp);
 #ifdef _LP64
   if (UseCompactObjectHeaders) {
-    load_nklass_compact(dst, src);
+    load_narrow_klass_compact(dst, src);
     decode_klass_not_null(dst, tmp);
   } else if (UseCompressedClassPointers) {
     movl(dst, Address(src, oopDesc::klass_offset_in_bytes()));
@@ -5720,10 +5719,11 @@ void MacroAssembler::store_klass(Register dst, Register src, Register tmp) {
 }
 
 void MacroAssembler::cmp_klass(Register klass, Register obj, Register tmp) {
-  BLOCK_COMMENT("cmp_klass 1");
 #ifdef _LP64
   if (UseCompactObjectHeaders) {
-    load_nklass_compact(tmp, obj);
+    assert(tmp != noreg, "need tmp");
+    assert_different_registers(klass, obj, tmp);
+    load_narrow_klass_compact(tmp, obj);
     cmpl(klass, tmp);
   } else if (UseCompressedClassPointers) {
     cmpl(klass, Address(obj, oopDesc::klass_offset_in_bytes()));
@@ -5734,23 +5734,22 @@ void MacroAssembler::cmp_klass(Register klass, Register obj, Register tmp) {
   }
 }
 
-void MacroAssembler::cmp_klass(Register src, Register dst, Register tmp1, Register tmp2) {
-  BLOCK_COMMENT("cmp_klass 2");
+void MacroAssembler::cmp_klasses_from_objects(Register obj1, Register obj2, Register tmp1, Register tmp2) {
 #ifdef _LP64
   if (UseCompactObjectHeaders) {
     assert(tmp2 != noreg, "need tmp2");
-    assert_different_registers(src, dst, tmp1, tmp2);
-    load_nklass_compact(tmp1, src);
-    load_nklass_compact(tmp2, dst);
+    assert_different_registers(obj1, obj2, tmp1, tmp2);
+    load_narrow_klass_compact(tmp1, obj1);
+    load_narrow_klass_compact(tmp2, obj2);
     cmpl(tmp1, tmp2);
   } else if (UseCompressedClassPointers) {
-    movl(tmp1, Address(src, oopDesc::klass_offset_in_bytes()));
-    cmpl(tmp1, Address(dst, oopDesc::klass_offset_in_bytes()));
+    movl(tmp1, Address(obj1, oopDesc::klass_offset_in_bytes()));
+    cmpl(tmp1, Address(obj2, oopDesc::klass_offset_in_bytes()));
   } else
 #endif
   {
-    movptr(tmp1, Address(src, oopDesc::klass_offset_in_bytes()));
-    cmpptr(tmp1, Address(dst, oopDesc::klass_offset_in_bytes()));
+    movptr(tmp1, Address(obj1, oopDesc::klass_offset_in_bytes()));
+    cmpptr(tmp1, Address(obj2, oopDesc::klass_offset_in_bytes()));
   }
 }
 
@@ -5814,7 +5813,7 @@ void MacroAssembler::verify_heapbase(const char* msg) {
   assert (Universe::heap() != nullptr, "java heap should be initialized");
   if (CheckCompressedOops) {
     Label ok;
-    ExternalAddress src2(CompressedOops::ptrs_base_addr());
+    ExternalAddress src2(CompressedOops::base_addr());
     const bool is_src2_reachable = reachable(src2);
     if (!is_src2_reachable) {
       push(rscratch1);  // cmpptr trashes rscratch1
@@ -6113,10 +6112,10 @@ void MacroAssembler::reinit_heapbase() {
       if (CompressedOops::base() == nullptr) {
         MacroAssembler::xorptr(r12_heapbase, r12_heapbase);
       } else {
-        mov64(r12_heapbase, (int64_t)CompressedOops::ptrs_base());
+        mov64(r12_heapbase, (int64_t)CompressedOops::base());
       }
     } else {
-      movptr(r12_heapbase, ExternalAddress(CompressedOops::ptrs_base_addr()));
+      movptr(r12_heapbase, ExternalAddress(CompressedOops::base_addr()));
     }
   }
 }
@@ -10486,5 +10485,14 @@ void MacroAssembler::restore_legacy_gprs() {
   movq(rcx, Address(rsp, 14 * wordSize));
   movq(rax, Address(rsp, 15 * wordSize));
   addq(rsp, 16 * wordSize);
+}
+
+void MacroAssembler::setcc(Assembler::Condition comparison, Register dst) {
+  if (VM_Version::supports_apx_f()) {
+    esetzucc(comparison, dst);
+  } else {
+    setb(comparison, dst);
+    movzbl(dst, dst);
+  }
 }
 #endif
