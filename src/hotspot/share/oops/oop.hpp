@@ -51,7 +51,14 @@ class ParCompactionManager;
 class oopDesc {
   friend class VMStructs;
   friend class JVMCIVMStructs;
- private:
+
+private:
+  enum class KlassMode {
+    Compact, Compressed, Uncompressed, Undefined
+  };
+
+  static KlassMode _klass_mode;
+
   volatile markWord _mark;
   union _metadata {
     Klass*      _klass;
@@ -65,6 +72,9 @@ class oopDesc {
   inline oop cas_set_forwardee(markWord new_mark, markWord old_mark, atomic_memory_order order);
 
  public:
+  static void init_klass_mode();
+  static inline KlassMode klass_mode();
+
   // Must be trivial; see verifying static assert after the class.
   oopDesc() = default;
 

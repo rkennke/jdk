@@ -3672,6 +3672,8 @@ jint Arguments::parse(const JavaVMInitArgs* initial_cmd_args) {
   }
 #endif
 
+  oopDesc::init_klass_mode();
+
   return JNI_OK;
 }
 

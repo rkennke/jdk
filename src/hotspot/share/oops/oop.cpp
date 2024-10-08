@@ -40,6 +40,18 @@
 #include "runtime/synchronizer.hpp"
 #include "utilities/macros.hpp"
 
+oopDesc::KlassMode oopDesc::_klass_mode = oopDesc::KlassMode::Undefined;
+
+void oopDesc::init_klass_mode() {
+  if (UseCompactObjectHeaders) {
+    _klass_mode = KlassMode::Compact;
+  } else if (UseCompressedClassPointers) {
+    _klass_mode = KlassMode::Compressed;
+  } else {
+    _klass_mode =  oopDesc::KlassMode::Uncompressed;
+  }
+}
+
 void oopDesc::print_on(outputStream* st) const {
   if (*((juint*)this) == badHeapWordVal) {
     st->print_cr("BAD WORD");

@@ -94,44 +94,70 @@ void oopDesc::init_mark() {
   set_mark(prototype_mark());
 }
 
-Klass* oopDesc::klass() const {
+oopDesc::KlassMode oopDesc::klass_mode() {
+#ifdef ASSERT
   if (UseCompactObjectHeaders) {
-    return mark().klass();
+    assert(_klass_mode == KlassMode::Compact, "klass-mode mismatch");
   } else if (UseCompressedClassPointers) {
-     return CompressedKlassPointers::decode_not_null(_metadata._compressed_klass);
+    assert(_klass_mode == KlassMode::Compact, "klass-mode mismatch");
   } else {
+    assert(_klass_mode == KlassMode::Uncompressed, "klass-mode mismatch");
+  }
+#endif
+  return _klass_mode;
+}
+
+Klass* oopDesc::klass() const {
+  switch (klass_mode()) {
+  case KlassMode::Compact:
+    return mark().klass();
+  case KlassMode::Compressed:
+    return CompressedKlassPointers::decode_not_null(_metadata._compressed_klass);
+  case KlassMode::Uncompressed:
     return _metadata._klass;
+  default:
+    ShouldNotReachHere(); return nullptr;
   }
 }
 
 Klass* oopDesc::klass_or_null() const {
-  if (UseCompactObjectHeaders) {
+  switch (klass_mode()) {
+  case KlassMode::Compact:
     return mark().klass_or_null();
-  } else if (UseCompressedClassPointers) {
+  case KlassMode::Compressed:
     return CompressedKlassPointers::decode(_metadata._compressed_klass);
-  } else {
+  case KlassMode::Uncompressed:
     return _metadata._klass;
+  default:
+    ShouldNotReachHere(); return nullptr;
   }
 }
 
 Klass* oopDesc::klass_or_null_acquire() const {
-  if (UseCompactObjectHeaders) {
+  switch (klass_mode()) {
+  case KlassMode::Compact:
     return mark_acquire().klass();
-  } else if (UseCompressedClassPointers) {
+  case KlassMode::Compressed: {
     narrowKlass narrow_klass = Atomic::load_acquire(&_metadata._compressed_klass);
     return CompressedKlassPointers::decode(narrow_klass);
-  } else {
+  }
+  case KlassMode::Uncompressed:
     return Atomic::load_acquire(&_metadata._klass);
+  default:
+    ShouldNotReachHere(); return nullptr;
   }
 }
 
 Klass* oopDesc::klass_without_asserts() const {
-  if (UseCompactObjectHeaders) {
+  switch (klass_mode()) {
+  case KlassMode::Compact:
     return mark().klass_without_asserts();
-  } else if (UseCompressedClassPointers) {
+  case KlassMode::Compressed:
     return CompressedKlassPointers::decode_without_asserts(_metadata._compressed_klass);
-  } else {
+  case KlassMode::Uncompressed:
     return _metadata._klass;
+  default:
+    ShouldNotReachHere(); return nullptr;
   }
 }
 
