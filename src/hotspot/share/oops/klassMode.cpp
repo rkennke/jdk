@@ -24,6 +24,8 @@
 
 #include "precompiled.hpp"
 #include "oops/klassMode.hpp"
+#include "runtime/globals.hpp"
+#include "utilities/debug.hpp"
 
 KlassMode::Mode KlassMode::_klass_mode = KlassMode::Undefined;
 
