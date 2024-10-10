@@ -2788,7 +2788,8 @@ void MacroAssembler::decode_klass_not_null(Register dst, Register src, Register 
   mv(xbase, (uintptr_t)CompressedKlassPointers::base());
 
   if (CompressedKlassPointers::shift() != 0) {
-    Register t = xbase == t0 ? t1 : t0;
+    Register t = src == dst ? dst : t0;
+    assert_different_registers(t, xbase);
     shadd(dst, src, xbase, t, CompressedKlassPointers::shift());
   } else {
     add(dst, xbase, src);
