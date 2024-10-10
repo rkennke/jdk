@@ -195,8 +195,8 @@ void LIR_Assembler::arraycopy_type_check(Register src, Register src_pos, Registe
   if (basic_type != T_OBJECT) {
     // Simple test for basic type arrays
     if (UseCompactObjectHeaders) {
-      __ load_nklass_compact(tmp, src);
-      __ load_nklass_compact(t0, dst);
+      __ load_narrow_klass_compact(tmp, src);
+      __ load_narrow_klass_compact(t0, dst);
     } else if (UseCompressedClassPointers) {
       __ lwu(tmp, Address(src, oopDesc::klass_offset_in_bytes()));
       __ lwu(t0, Address(dst, oopDesc::klass_offset_in_bytes()));

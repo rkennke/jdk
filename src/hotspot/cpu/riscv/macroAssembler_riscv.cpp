@@ -2484,12 +2484,10 @@ void MacroAssembler::orptr(Address adr, RegisterOrConstant src, Register tmp1, R
 }
 
 void MacroAssembler::cmp_klass_compressed(Register oop, Register trial_klass, Register tmp1, Label &L, bool equal) {
-  if (UseCompressedClassPointers) {
-    if (UseCompactObjectHeaders) {
-      load_nklass_compact(tmp1, oop);
-    } else {
-      lwu(tmp1, Address(oop, oopDesc::klass_offset_in_bytes()));
-    }
+  if (UseCompactObjectHeaders) {
+    load_narrow_klass_compact(tmp1, oop);
+  } else if (UseCompressedClassPointers) {
+    lwu(tmp1, Address(oop, oopDesc::klass_offset_in_bytes()));
   } else {
     ld(tmp1, Address(oop, oopDesc::klass_offset_in_bytes()));
   }
@@ -2724,7 +2722,7 @@ void MacroAssembler::encode_heap_oop_not_null(Register dst, Register src) {
   }
 }
 
-void MacroAssembler::load_nklass_compact(Register dst, Register src) {
+void MacroAssembler::load_narrow_klass_compact(Register dst, Register src) {
   assert(UseCompactObjectHeaders, "expects UseCompactObjectHeaders");
   ld(dst, Address(src, oopDesc::mark_offset_in_bytes()));
   srli(dst, dst, markWord::klass_shift);
@@ -2733,12 +2731,11 @@ void MacroAssembler::load_nklass_compact(Register dst, Register src) {
 void MacroAssembler::load_klass(Register dst, Register src, Register tmp) {
   assert_different_registers(dst, tmp);
   assert_different_registers(src, tmp);
-  if (UseCompressedClassPointers) {
-    if (UseCompactObjectHeaders) {
-      load_nklass_compact(dst, src);
-    } else {
-      lwu(dst, Address(src, oopDesc::klass_offset_in_bytes()));
-    }
+  if (UseCompactObjectHeaders) {
+    load_narrow_klass_compact(dst, src);
+    decode_klass_not_null(dst, tmp);
+  } else if (UseCompressedClassPointers) {
+    lwu(dst, Address(src, oopDesc::klass_offset_in_bytes()));
     decode_klass_not_null(dst, tmp);
   } else {
     ld(dst, Address(src, oopDesc::klass_offset_in_bytes()));
@@ -4346,7 +4343,7 @@ int MacroAssembler::ic_check(int end_alignment) {
   int uep_offset = offset();
 
   if (UseCompactObjectHeaders) {
-    load_nklass_compact(tmp1, receiver);
+    load_narrow_klass_compact(tmp1, receiver);
     lwu(tmp2, Address(data, CompiledICData::speculated_klass_offset()));
   } else if (UseCompressedClassPointers) {
     lwu(tmp1, Address(receiver, oopDesc::klass_offset_in_bytes()));
