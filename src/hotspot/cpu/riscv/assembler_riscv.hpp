@@ -246,9 +246,10 @@ class Address {
     return *this;
   }
 
-  Address& plus(int64_t offset) {
-    _nonliteral._offset += offset;
-    return *this;
+  Address plus(int64_t offset) {
+    Address a = (*this);
+    a._nonliteral._offset += offset;
+    return a;
   }
 
   ~Address() = default;

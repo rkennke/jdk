@@ -197,7 +197,7 @@ class MacroAssembler: public Assembler {
   void load_klass(Register dst, Register src, Register tmp = t0);
   void load_narrow_klass_compact(Register dst, Register src);
   void store_klass(Register dst, Register src, Register tmp = t0);
-  void cmp_klass_compressed(Register oop, Register trial_klass, Register tmp1, Label &L, bool equal);
+  void cmp_klass_compressed(Register oop, Register trial_klass, Register tmp, Label &L, bool equal);
 
   void encode_klass_not_null(Register r, Register tmp = t0);
   void decode_klass_not_null(Register r, Register tmp = t0);
