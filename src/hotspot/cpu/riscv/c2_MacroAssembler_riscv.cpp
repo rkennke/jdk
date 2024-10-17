@@ -3126,6 +3126,6 @@ void C2_MacroAssembler::load_narrow_klass_compact_c2(Register dst, Address src) 
   // comes as obj-start in obj and klass_offset_in_bytes in disp.
   assert(UseCompactObjectHeaders, "must");
   int offset = oopDesc::mark_offset_in_bytes() - oopDesc::klass_offset_in_bytes();
-  ld(dst, src.plus(offset));
+  ld(dst, Address(src.base(), src.offset() + offset));
   srli(dst, dst, markWord::klass_shift);
 }
