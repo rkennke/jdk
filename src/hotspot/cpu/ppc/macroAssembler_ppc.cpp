@@ -1218,6 +1218,9 @@ int MacroAssembler::ic_check_size() {
     num_ins = 7;
     if (!implicit_null_checks_available) num_ins += 2;
   }
+
+  if (UseCompactObjectHeaders) num_ins++;
+
   return num_ins * BytesPerInstWord;
 }
 
@@ -1245,7 +1248,9 @@ int MacroAssembler::ic_check(int end_alignment) {
     if (use_trap_based_null_check) {
       trap_null_check(receiver);
     }
-    if (UseCompressedClassPointers) {
+    if (UseCompactObjectHeaders) {
+      load_narrow_klass_compact(tmp1, receiver);
+    } else if (UseCompressedClassPointers) {
       lwz(tmp1, oopDesc::klass_offset_in_bytes(), receiver);
     } else {
       ld(tmp1, oopDesc::klass_offset_in_bytes(), receiver);
@@ -2410,7 +2415,7 @@ void MacroAssembler::verify_secondary_supers_table(Register r_sub_klass,
 void MacroAssembler::clinit_barrier(Register klass, Register thread, Label* L_fast_path, Label* L_slow_path) {
   assert(L_fast_path != nullptr || L_slow_path != nullptr, "at least one is required");
 
-  Label L_fallthrough;
+  Label L_check_thread, L_fallthrough;
   if (L_fast_path == nullptr) {
     L_fast_path = &L_fallthrough;
   } else if (L_slow_path == nullptr) {
@@ -2419,10 +2424,14 @@ void MacroAssembler::clinit_barrier(Register klass, Register thread, Label* L_fa
 
   // Fast path check: class is fully initialized
   lbz(R0, in_bytes(InstanceKlass::init_state_offset()), klass);
+  // acquire by cmp-branch-isync if fully_initialized
   cmpwi(CCR0, R0, InstanceKlass::fully_initialized);
-  beq(CCR0, *L_fast_path);
+  bne(CCR0, L_check_thread);
+  isync();
+  b(*L_fast_path);
 
   // Fast path check: current thread is initializer thread
+  bind(L_check_thread);
   ld(R0, in_bytes(InstanceKlass::init_thread_offset()), klass);
   cmpd(CCR0, thread, R0);
   if (L_slow_path == &L_fallthrough) {
@@ -3239,6 +3248,7 @@ Register MacroAssembler::encode_klass_not_null(Register dst, Register src) {
 }
 
 void MacroAssembler::store_klass(Register dst_oop, Register klass, Register ck) {
+  assert(!UseCompactObjectHeaders, "not with compact headers");
   if (UseCompressedClassPointers) {
     Register compressedKlass = encode_klass_not_null(ck, klass);
     stw(compressedKlass, oopDesc::klass_offset_in_bytes(), dst_oop);
@@ -3248,12 +3258,13 @@ void MacroAssembler::store_klass(Register dst_oop, Register klass, Register ck) 
 }
 
 void MacroAssembler::store_klass_gap(Register dst_oop, Register val) {
+  assert(!UseCompactObjectHeaders, "not with compact headers");
   if (UseCompressedClassPointers) {
     if (val == noreg) {
       val = R0;
       li(val, 0);
     }
-    stw(val, oopDesc::klass_gap_offset_in_bytes(), dst_oop); // klass gap if compressed
+    stw(val, oopDesc::klass_gap_offset_in_bytes(), dst_oop);
   }
 }
 
@@ -3294,12 +3305,57 @@ void MacroAssembler::decode_klass_not_null(Register dst, Register src) {
 }
 
 void MacroAssembler::load_klass(Register dst, Register src) {
-  if (UseCompressedClassPointers) {
+  if (UseCompactObjectHeaders) {
+    load_narrow_klass_compact(dst, src);
+    decode_klass_not_null(dst);
+  } else if (UseCompressedClassPointers) {
     lwz(dst, oopDesc::klass_offset_in_bytes(), src);
-    // Attention: no null check here!
-    decode_klass_not_null(dst, dst);
+    decode_klass_not_null(dst);
   } else {
     ld(dst, oopDesc::klass_offset_in_bytes(), src);
+  }
+}
+
+// Loads the obj's Klass* into dst.
+// Preserves all registers (incl src, rscratch1 and rscratch2).
+// Input:
+// src - the oop we want to load the klass from.
+// dst - output nklass.
+void MacroAssembler::load_narrow_klass_compact(Register dst, Register src) {
+  assert(UseCompactObjectHeaders, "expects UseCompactObjectHeaders");
+  ld(dst, oopDesc::mark_offset_in_bytes(), src);
+  srdi(dst, dst, markWord::klass_shift);
+}
+
+void MacroAssembler::cmp_klass(ConditionRegister dst, Register obj, Register klass, Register tmp, Register tmp2) {
+  assert_different_registers(obj, klass, tmp);
+  if (UseCompressedClassPointers) {
+    if (UseCompactObjectHeaders) {
+      load_narrow_klass_compact(tmp, obj);
+    } else {
+      lwz(tmp, oopDesc::klass_offset_in_bytes(), obj);
+    }
+    Register encoded_klass = encode_klass_not_null(tmp2, klass);
+    cmpw(dst, tmp, encoded_klass);
+  } else {
+    ld(tmp, oopDesc::klass_offset_in_bytes(), obj);
+    cmpd(dst, tmp, klass);
+  }
+}
+
+void MacroAssembler::cmp_klasses_from_objects(ConditionRegister dst, Register obj1, Register obj2, Register tmp1, Register tmp2) {
+  if (UseCompactObjectHeaders) {
+    load_narrow_klass_compact(tmp1, obj1);
+    load_narrow_klass_compact(tmp2, obj2);
+    cmpw(dst, tmp1, tmp2);
+  } else if (UseCompressedClassPointers) {
+    lwz(tmp1, oopDesc::klass_offset_in_bytes(), obj1);
+    lwz(tmp2, oopDesc::klass_offset_in_bytes(), obj2);
+    cmpw(dst, tmp1, tmp2);
+  } else {
+    ld(tmp1, oopDesc::klass_offset_in_bytes(), obj1);
+    ld(tmp2, oopDesc::klass_offset_in_bytes(), obj2);
+    cmpd(dst, tmp1, tmp2);
   }
 }
 
