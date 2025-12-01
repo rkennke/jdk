@@ -446,6 +446,24 @@ void ShenandoahBarrierSetAssembler::try_resolve_jobject_in_native(MacroAssembler
   __ bind(done);
 }
 
+void ShenandoahBarrierSetAssembler::try_resolve_weak_handle_in_c2(MacroAssembler* masm, Register obj, Register tmp, Label& slow_path) {
+  Label done;
+  // Resolve jobject
+  BarrierSetAssembler::try_resolve_weak_handle_in_c2(masm, obj, tmp, slow_path);
+
+  // Check for null.
+  __ cbz(obj, done);
+
+  assert(obj != rscratch2, "need rscratch2");
+  Address gc_state(rthread, ShenandoahThreadLocalData::gc_state_offset());
+  __ lea(rscratch2, gc_state);
+  __ ldrb(rscratch2, Address(rscratch2));
+
+  // Check for heap in evacuation phase
+  __ tbnz(rscratch2, ShenandoahHeap::WEAK_ROOTS_BITPOS, slow_path);
+  __ bind(done);
+}
+
 // Special Shenandoah CAS implementation that handles false negatives due
 // to concurrent evacuation.  The service is more complex than a
 // traditional CAS operation because the CAS operation is intended to
