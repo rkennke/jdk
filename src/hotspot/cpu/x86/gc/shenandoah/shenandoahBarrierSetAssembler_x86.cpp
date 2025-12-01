@@ -629,6 +629,23 @@ void ShenandoahBarrierSetAssembler::try_resolve_jobject_in_native(MacroAssembler
   __ bind(done);
 }
 
+#ifdef COMPILER2
+void ShenandoahBarrierSetAssembler::try_resolve_weak_handle_in_c2(MacroAssembler* masm, Register obj, Label& slowpath) {
+  Label done;
+  // Resolve jobject
+  BarrierSetAssembler::try_resolve_weak_handle_in_c2(masm, obj, slowpath);
+
+  // Check for null.
+  __ testptr(obj, obj);
+  __ jcc(Assembler::zero, done);
+
+  Address gc_state(r15_thread, ShenandoahThreadLocalData::gc_state_offset());
+  __ testb(gc_state, ShenandoahHeap::WEAK_ROOTS);
+  __ jccb(Assembler::notZero, slowpath);
+  __ bind(done);
+}
+#endif // COMPILER2
+
 // Special Shenandoah CAS implementation that handles false negatives
 // due to concurrent evacuation.
 void ShenandoahBarrierSetAssembler::cmpxchg_oop(MacroAssembler* masm,

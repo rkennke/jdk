@@ -446,6 +446,7 @@ void ShenandoahBarrierSetAssembler::try_resolve_jobject_in_native(MacroAssembler
   __ bind(done);
 }
 
+#ifdef COMPILER2
 void ShenandoahBarrierSetAssembler::try_resolve_weak_handle_in_c2(MacroAssembler* masm, Register obj, Register tmp, Label& slow_path) {
   Label done;
   // Resolve jobject
@@ -463,6 +464,7 @@ void ShenandoahBarrierSetAssembler::try_resolve_weak_handle_in_c2(MacroAssembler
   __ tbnz(rscratch2, ShenandoahHeap::WEAK_ROOTS_BITPOS, slow_path);
   __ bind(done);
 }
+#endif
 
 // Special Shenandoah CAS implementation that handles false negatives due
 // to concurrent evacuation.  The service is more complex than a
