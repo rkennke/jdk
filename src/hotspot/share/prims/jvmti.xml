@@ -2919,6 +2919,90 @@ err = (*jvmti)-&gt;Deallocate(jvmti, stack_info);
       </errors>
     </function>
 
+    <callback id="jvmtiStackFrame">
+      <enum>jvmtiIterationControl</enum>
+      <synopsis>Stack Frame Callback</synopsis>
+      <description>
+        Agent supplied callback function.
+        This function is called to report a stack-trace.
+      </description>
+      <parameters>
+        <param id="frame_num">
+          <jint/>
+          <description>
+            The frame number. Frame numbers are reported from highest (total number of frames)
+            to lowest (0). This allows the callback to know in advance how many frames will
+            be reported, and also to know when all frames have been reported.
+          </description>
+        </param>
+        <param id="method">
+          <jmethodID/>
+          <description>
+            The method of the stack frame.
+          </description>
+        </param>
+        <param id="location">
+          <jlocation/>
+          <description>
+            The of the currently executing instruction. -1 indicates a native method.
+          </description>
+        </param>
+        <param id="user_data">
+          <outptr><void/></outptr>
+          <description>
+            The user supplied data that was passed into the iteration function.
+          </description>
+        </param>
+      </parameters>
+    </callback>
+
+    <function id="RequestStackTrace" num="105">
+      <synopsis>Get Frame Count</synopsis>
+      <description>
+        Requests a stack-trace from this thread (thread==null) or the specified thread.
+        The stack-trace is reported back by repeated calls to the callback. The callback
+        is called once per stack-frame.
+        <p/>
+        The callback should expected to be called asynchronously. That is, this function
+        returns immediately and the callback can be called some time after that.
+        The data that is reported to the callback is valid only during the callback (from
+        the first to the last reported stack-frame).
+        <p/>
+        This function is safe to call from a signal handler.
+      </description>
+      <origin></origin>
+      <capabilities>
+      </capabilities>
+      <parameters>
+        <param id="thread">
+          <jthread null="current" impl="noconvert"/>
+          <description>
+            The thread to query.
+          </description>
+        </param>
+        <param id="stack_frame_callback">
+          <ptrtype>
+            <struct>jvmtiStackFrame</struct>
+          </ptrtype>
+          <description>
+            The iterator function to be called for each
+            stack-frame in the requested stack-trace.
+          </description>
+        </param>
+        <param id="user_data">
+          <inbuf>
+            <void/>
+            <nullok>a null pointer is passed as the user supplied data</nullok>
+          </inbuf>
+          <description>
+            User supplied data to be passed to the callback.
+          </description>
+        </param>
+      </parameters>
+      <errors>
+      </errors>
+    </function>
+
     <function id="PopFrame" num="80">
       <synopsis>Pop Frame</synopsis>
       <description>

@@ -1721,6 +1721,15 @@ JvmtiEnv::GetThreadListStackTraces(jint thread_count, const jthread* thread_list
   return err;
 } /* end GetThreadListStackTraces */
 
+// thread - NOT protected by ThreadsListHandle and NOT pre-checked
+jvmtiError
+JvmtiEnv::RequestStackTrace(jthread thread, jvmtiStackFrame stack_frame_callback, const void* user_data) {
+  jvmtiError err = JVMTI_ERROR_NONE;
+  if (stack_frame_callback == nullptr) {
+    err = JVMTI_ERROR_NULL_POINTER;
+  }
+  return err;
+}
 
 // thread - NOT protected by ThreadsListHandle and NOT pre-checked
 // count_ptr - pre-checked for null
