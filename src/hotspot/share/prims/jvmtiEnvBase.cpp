@@ -1246,6 +1246,48 @@ JvmtiEnvBase::get_stack_trace(JavaThread *java_thread,
   return err;
 }
 
+jvmtiError
+JvmtiEnvBase::walk_stack_trace(javaVFrame *jvf, jvmtiStackFrameCallback callback, jint max_depth, const void* user_data) {
+  Thread *current_thread = Thread::current();
+  ResourceMark rm(current_thread);
+  HandleMark hm(current_thread);
+  jvmtiIterationControl iteration_control = JVMTI_ITERATION_CONTINUE;
+  for (int count = 0;
+       iteration_control == JVMTI_ITERATION_CONTINUE && count < max_depth && jvf != nullptr;
+       count++) {
+    jmethodID method = jvf->method()->jmethod_id();
+    jlocation loc = (jvf->method()->is_native() ? -1 : jvf->bci());
+    iteration_control = callback(JVMTI_JAVA_FRAME, method, loc, user_data);
+    jvf = jvf->java_sender();
+  }
+  callback(JVMTI_LAST_FRAME, nullptr, 0, user_data);
+  return JVMTI_ERROR_NONE;
+}
+
+jvmtiError
+JvmtiEnvBase::walk_stack_trace(JavaThread *java_thread, jvmtiStackFrameCallback callback, jint max_depth, const void* user_data) {
+  Thread *current_thread = Thread::current();
+  assert(SafepointSynchronize::is_at_safepoint() ||
+         java_thread->is_handshake_safe_for(current_thread),
+         "call by myself / at safepoint / at handshake");
+  int count = 0;
+  jvmtiError err = JVMTI_ERROR_NONE;
+
+  if (java_thread->has_last_Java_frame()) {
+    RegisterMap reg_map(java_thread,
+                        RegisterMap::UpdateMap::include,
+                        RegisterMap::ProcessFrames::skip,
+                        RegisterMap::WalkContinuation::skip);
+    ResourceMark rm(current_thread);
+    javaVFrame *jvf = get_cthread_last_java_vframe(java_thread, &reg_map);
+
+    err = walk_stack_trace(jvf, callback, max_depth, user_data);
+  } else {
+    callback(JVMTI_LAST_FRAME, nullptr, 0, user_data);
+  }
+  return err;
+}
+
 jint
 JvmtiEnvBase::get_frame_count(javaVFrame *jvf) {
   int count = 0;
@@ -2592,6 +2634,26 @@ GetStackTraceClosure::do_vthread(Handle target_h) {
   _result = ((JvmtiEnvBase *)_env)->get_stack_trace(jvf,
                                                     _start_depth, _max_count,
                                                     _frame_buffer, _count_ptr);
+}
+
+void
+RequestStackTraceClosure::do_thread(Thread *target) {
+  Thread* current = Thread::current();
+  ResourceMark rm(current);
+
+  JavaThread *jt = JavaThread::cast(target);
+  if (!jt->is_exiting() && jt->threadObj() != nullptr) {
+    _result = ((JvmtiEnvBase *)_env)->walk_stack_trace(jt, _callback, _max_depth, _user_data);
+  }
+}
+
+void
+RequestStackTraceClosure::do_vthread(Handle target_h) {
+  Thread* current = Thread::current();
+  ResourceMark rm(current);
+
+  javaVFrame *jvf = JvmtiEnvBase::get_vthread_jvf(target_h());
+  _result = ((JvmtiEnvBase *)_env)->walk_stack_trace(jvf, _callback, _max_depth, _user_data);
 }
 
 #ifdef ASSERT

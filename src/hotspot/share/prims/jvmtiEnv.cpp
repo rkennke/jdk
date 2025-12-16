@@ -54,6 +54,7 @@
 #include "prims/jvmtiManageCapabilities.hpp"
 #include "prims/jvmtiRawMonitor.hpp"
 #include "prims/jvmtiRedefineClasses.hpp"
+#include "prims/jvmtiStackWalker.hpp"
 #include "prims/jvmtiTagMap.hpp"
 #include "prims/jvmtiThreadState.inline.hpp"
 #include "prims/jvmtiUtil.hpp"
@@ -82,6 +83,9 @@
 #include "utilities/preserveException.hpp"
 #include "utilities/utf8.hpp"
 
+#if INCLUDE_JFR
+#include "jfr/periodic/sampling/jfrCPUTimeThreadSampler.hpp"
+#endif
 
 #define FIXLATER 0 // REMOVE this when completed.
 
@@ -1723,12 +1727,11 @@ JvmtiEnv::GetThreadListStackTraces(jint thread_count, const jthread* thread_list
 
 // thread - NOT protected by ThreadsListHandle and NOT pre-checked
 jvmtiError
-JvmtiEnv::RequestStackTrace(jthread thread, jvmtiStackFrame stack_frame_callback, const void* user_data) {
-  jvmtiError err = JVMTI_ERROR_NONE;
+JvmtiEnv::RequestStackTrace(jthread thread, jvmtiStackFrameCallback stack_frame_callback, jint max_depth, void* ucontext, const void* user_data) {
   if (stack_frame_callback == nullptr) {
-    err = JVMTI_ERROR_NULL_POINTER;
+    return JVMTI_ERROR_NULL_POINTER;
   }
-  return err;
+  return JVMTIStackWalker::request_stack_trace(thread, stack_frame_callback, max_depth, ucontext, user_data);
 }
 
 // thread - NOT protected by ThreadsListHandle and NOT pre-checked

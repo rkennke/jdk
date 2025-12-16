@@ -581,6 +581,12 @@ void JfrCPUTimeThreadSampling::handle_timer_signal(siginfo_t* info, void* contex
   _sampler->decrement_signal_handler_count();
 }
 
+#if INCLUDE_JVMTI
+void JfrCPUTimeThreadSampling::jvmti_request_stack_trace(jvmtiStackFrameCallback callback, jint max_depth, void* ucontext, const void* user) {
+
+}
+#endif
+
 #ifdef ASSERT
 bool JfrCPUTimeThreadSampling::set_out_of_stack_walking_enabled(bool runnable) {
   if (_instance != nullptr && _instance->_sampler != nullptr) {

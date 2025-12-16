@@ -2919,20 +2919,31 @@ err = (*jvmti)-&gt;Deallocate(jvmti, stack_info);
       </errors>
     </function>
 
-    <callback id="jvmtiStackFrame">
+    <callback id="jvmtiStackFrameCallback">
       <enum>jvmtiIterationControl</enum>
       <synopsis>Stack Frame Callback</synopsis>
       <description>
         Agent supplied callback function.
         This function is called to report a stack-trace.
+        Each frame has a frame type according to the following enum:
+        <constants id="jvmtiFrameType" label="Frame Type Enumeration" kind="enum">
+          <constant id="JVMTI_LAST_FRAME" num="0">
+            Dummy frame, indicates the bottom of the stack has been reached during iteration.
+          </constant>
+          <constant id="JVMTI_JAVA_FRAME" num="1">
+            Java frame.
+          </constant>
+          <constant id="JVMTI_NATIVE_FRAME" num="2">
+            Native frame.
+          </constant>
+        </constants>
+
       </description>
       <parameters>
-        <param id="frame_num">
-          <jint/>
+        <param id="frame_type">
+          <enum>jvmtiFrameType</enum>
           <description>
-            The frame number. Frame numbers are reported from highest (total number of frames)
-            to lowest (0). This allows the callback to know in advance how many frames will
-            be reported, and also to know when all frames have been reported.
+            The frame type.
           </description>
         </param>
         <param id="method">
@@ -2948,7 +2959,10 @@ err = (*jvmti)-&gt;Deallocate(jvmti, stack_info);
           </description>
         </param>
         <param id="user_data">
-          <outptr><void/></outptr>
+          <inbuf>
+            <void/>
+            <nullok>a null pointer is passed as the user supplied data</nullok>
+          </inbuf>
           <description>
             The user supplied data that was passed into the iteration function.
           </description>
@@ -2982,11 +2996,25 @@ err = (*jvmti)-&gt;Deallocate(jvmti, stack_info);
         </param>
         <param id="stack_frame_callback">
           <ptrtype>
-            <struct>jvmtiStackFrame</struct>
+            <struct>jvmtiStackFrameCallback</struct>
           </ptrtype>
           <description>
             The iterator function to be called for each
             stack-frame in the requested stack-trace.
+          </description>
+        </param>
+        <param id="max_depth">
+          <jint/>
+          <description>
+            The maximum number of stack-frames to report.
+          </description>
+        </param>
+        <param id="ucontext">
+          <outbuf>
+            <void/>
+          </outbuf>
+          <description>
+            Pointer to ucontext_t structure from the signal-handler (POSIX-only).
           </description>
         </param>
         <param id="user_data">

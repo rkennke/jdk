@@ -43,6 +43,9 @@
 #if INCLUDE_JFR
 #include "jfr/support/jfrThreadExtension.hpp"
 #endif
+#if INCLUDE_JVMTI
+#include "prims/jvmtiThreadLocal.hpp"
+#endif
 
 class CompilerThread;
 class HandleArea;
@@ -266,7 +269,10 @@ class Thread: public ThreadShadow {
 
   JvmtiRawMonitor* _current_pending_raw_monitor; // JvmtiRawMonitor this thread
                                                  // is waiting to lock
- public:
+
+  JVMTI_ONLY(JVMTIThreadLocal _jvmti_thread_local;)
+
+public:
   // Constructor
   Thread(MemTag mem_tag = mtThread);
   virtual ~Thread() = 0;        // Thread is abstract.
@@ -426,6 +432,12 @@ class Thread: public ThreadShadow {
   void set_current_pending_raw_monitor(JvmtiRawMonitor* monitor) {
     _current_pending_raw_monitor = monitor;
   }
+
+#if INCLUDE_JVMTI
+  JVMTIThreadLocal& jvmti_thread_local() {
+    return _jvmti_thread_local;
+  }
+#endif
 
   // GC support
   // Apply "f->do_oop" to all root oops in "this".

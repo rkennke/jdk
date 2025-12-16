@@ -26,6 +26,9 @@
 #define SHARE_JFR_PERIODIC_SAMPLING_JFRCPUTIMETHREADSAMPLER_HPP
 
 #include "jfr/utilities/jfrAllocation.hpp"
+#if INCLUDE_JVMTI
+#include "jvmti.h"
+#endif
 
 class JavaThread;
 
@@ -140,6 +143,8 @@ class JfrCPUTimeThreadSampling : public JfrCHeapObj {
   static void trigger_async_processing_of_cpu_time_jfr_requests();
 
   DEBUG_ONLY(static bool set_out_of_stack_walking_enabled(bool runnable);)
+
+  JVMTI_ONLY(static void jvmti_request_stack_trace(jvmtiStackFrameCallback callback, jint max_depth, void* ucontext, const void* user);)
 };
 
 #else

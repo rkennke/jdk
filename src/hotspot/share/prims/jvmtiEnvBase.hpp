@@ -418,6 +418,11 @@ class JvmtiEnvBase : public CHeapObj<mtInternal> {
   jvmtiError get_stack_trace(JavaThread* java_thread,
                              jint stack_depth, jint max_count,
                              jvmtiFrameInfo* frame_buffer, jint* count_ptr);
+  jvmtiError walk_stack_trace(javaVFrame* jvf, jvmtiStackFrameCallback callback,
+                              jint max_depth, const void* user_data);
+  jvmtiError walk_stack_trace(JavaThread* java_thread, jvmtiStackFrameCallback callback,
+                              jint max_depth, const void* user_data);
+
   jvmtiError get_current_contended_monitor(JavaThread* calling_thread, JavaThread* java_thread,
                                            jobject* monitor_ptr, bool is_virtual);
   jvmtiError get_owned_monitors(JavaThread* calling_thread, JavaThread* java_thread,
@@ -657,6 +662,23 @@ public:
   void do_thread(Thread *target);
   void do_vthread(Handle target_h);
 };
+
+class RequestStackTraceClosure : public JvmtiUnitedHandshakeClosure {
+  JvmtiEnv *_env;
+  jvmtiStackFrameCallback _callback;
+  jint _max_depth;
+  const void* _user_data;
+public:
+  RequestStackTraceClosure(JvmtiEnv *env, jvmtiStackFrameCallback callback, jint max_depth, const void* user_data)
+    : JvmtiUnitedHandshakeClosure("GetStackTrace"),
+      _env(env),
+      _callback(callback),
+      _max_depth(max_depth),
+      _user_data(user_data) {}
+  void do_thread(Thread *target);
+  void do_vthread(Handle target_h);
+};
+
 
 #ifdef ASSERT
 // HandshakeClosure to print stack trace in JvmtiVTMSTransitionDisabler error handling.
