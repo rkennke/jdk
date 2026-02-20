@@ -205,6 +205,8 @@ jint init_globals2() {
   final_stubs_init();    // final StubRoutines stubs
   MethodHandles::generate_adapters();
 
+  JvmtiExtensions::post_initialize();
+
   // All the flags that get adjusted by VM_Version_init and os::init_2
   // have been set so dump the flags now.
   if (PrintFlagsFinal || PrintFlagsRanges) {
