@@ -34,6 +34,7 @@
 #include "utilities/macros.hpp"
 
 #if INCLUDE_JFR
+#include "jfr/recorder/jfrRecorder.hpp"
 #include "jfr/recorder/service/jfrOptionSet.hpp"
 #include "jfr/recorder/stacktrace/jfrStackTrace.hpp"
 #include "jfr/recorder/stacktrace/jfrStackTraceRepository.hpp"
@@ -292,17 +293,31 @@ static jvmtiError JNICALL RequestStackTrace(const jvmtiEnv* env, ...) {
     return JVMTI_ERROR_UNSUPPORTED_OPERATION;
   }
 
-  Thread* current = Thread::current();
+  // Use current_or_null_safe() because this is called from a signal handler
+  // and the signal may fire on a thread that is detaching from the VM.
+  Thread* current = Thread::current_or_null_safe();
   if (current == nullptr || !current->is_Java_thread()) {
+    return JVMTI_ERROR_WRONG_PHASE;
+  }
+
+  if (!JfrRecorder::is_created()) {
     return JVMTI_ERROR_WRONG_PHASE;
   }
 
   JavaThread* java_thread = JavaThread::cast(current);
 
+  // Filter out threads that are exiting or excluded, matching the JFR CPU
+  // time sampler's get_java_thread_if_valid() checks.
+  if (java_thread->is_exiting() ||
+      java_thread->is_hidden_from_external_view() ||
+      java_thread->jfr_thread_local()->is_excluded()) {
+    return JVMTI_ERROR_WRONG_PHASE;
+  }
+
   StackWalkRequest request;
   request.set_max_frames(JfrOptionSet::stackdepth());
   request.construct_callback<JfrAsyncStackTraceCallback>(user_data);
-  StackWalker::request_stack_trace(request, java_thread, ucontext, false /* thread_is_suspended */);
+  StackWalker::request_stack_trace(request, java_thread, ucontext, true /* thread_is_suspended */);
 
   return JVMTI_ERROR_NONE;
 #endif // !INCLUDE_JFR
