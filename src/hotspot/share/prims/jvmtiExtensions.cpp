@@ -238,8 +238,24 @@ static jvmtiError JNICALL RequestStackTrace(const jvmtiEnv* env, ...) {
     return JVMTI_ERROR_MUST_POSSESS_CAPABILITY;
   }
 
-  JavaThread* current_thread = JavaThread::current();
-  HandleMark hm(current_thread);
+  // Use current_or_null_safe() because this is called from a signal handler
+  // and the signal may fire on a thread that is detaching from the VM.
+  Thread* current = Thread::current_or_null_safe();
+  if (current == nullptr || !current->is_Java_thread()) {
+    return JVMTI_ERROR_WRONG_PHASE;
+  }
+
+  JavaThread* java_thread = JavaThread::cast(current);
+
+  // Filter out threads that are exiting or excluded, matching the JFR CPU
+  // time sampler's get_java_thread_if_valid() checks.
+  if (java_thread->is_exiting() ||
+      java_thread->is_hidden_from_external_view() ||
+      java_thread->jfr_thread_local()->is_excluded()) {
+    return JVMTI_ERROR_WRONG_PHASE;
+  }
+
+  HandleMark hm(java_thread);
   jthread thread = nullptr;
   void* ucontext;
   jvmtiBeginStackTraceCallback begin_stack_trace_callback;
@@ -268,7 +284,7 @@ static jvmtiError JNICALL RequestStackTrace(const jvmtiEnv* env, ...) {
     request.construct_callback<JvmtiStackWalkerCallback>(
         begin_stack_trace_callback, end_stack_trace_callback,
         stack_frame_callback, user_data);
-    StackWalker::request_stack_trace(request, current_thread, ucontext, true /* suspended */);
+    StackWalker::request_stack_trace(request, java_thread, ucontext, true /* suspended */);
     return JVMTI_ERROR_NONE;
   }
 #endif
