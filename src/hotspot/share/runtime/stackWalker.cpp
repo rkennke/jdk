@@ -27,14 +27,16 @@
 
 #if INCLUDE_STACKWALKER
 
-#include "gc/shared/gc_globals.hpp"
-#include "logging/log.hpp"
 #include "memory/allocation.hpp"
 #include "code/codeCache.hpp"
 #include "code/debugInfoRec.hpp"
+#include "gc/shared/gc_globals.hpp"
 #include "interpreter/interpreter.hpp"
+#include "logging/log.hpp"
+#include "memory/allocation.hpp"
 #include "runtime/atomicAccess.hpp"
 #include "runtime/continuation.hpp"
+#include "runtime/frame.hpp"
 #include "runtime/javaThread.hpp"
 #include "runtime/os.hpp"
 #include "runtime/safepointMechanism.inline.hpp"
@@ -412,7 +414,7 @@ public:
     // Prevent native stack walker from running through an ongoing safepoint.
     MutexLocker tlock(Threads_lock);
     ThreadsListHandle tlh;
-    for (size_t i = 0; i < tlh.list()->length(); i++) {
+    for (uint i = 0; i < tlh.list()->length(); i++) {
       JavaThread* jt = tlh.list()->thread_at(i);
       StackWalkerThreadLocal& tl = jt->stackwalker_thread_local();
       // First check if the thread has requested native stack walking.
@@ -524,7 +526,7 @@ static bool in_stack(intptr_t* ptr, const JavaThread* jt) {
 static bool sp_in_stack(const StackWalkRequest& request, const JavaThread* jt) {
   return in_stack(static_cast<intptr_t*>(request.sample_sp()), jt);
 }
-#endif
+#endif // ASSERT
 
 static bool fp_in_stack(const StackWalkRequest& request, const JavaThread* jt) {
   return in_stack(static_cast<intptr_t*>(request.sample_bcp()), jt);
