@@ -345,8 +345,7 @@ void JvmtiExtensions::register_extensions() {
     { (char*)"user_data", JVMTI_KIND_IN_BUF, JVMTI_TYPE_CVOID, JNI_TRUE }
   };
   // InitializeRequestStackTrace
-  static jvmtiParamInfo func_params4[] = {
-  };
+  static jvmtiParamInfo* func_params4 = nullptr;
 #endif
 
   static jvmtiError errors[] = {
@@ -399,7 +398,7 @@ void JvmtiExtensions::register_extensions() {
     (jvmtiExtensionFunction)InitializeRequestStackTrace,
     (char*)"com.sun.hotspot.functions.InitializeRequestStackTrace",
     (char*)"Initializes the VM to enable requesting a stacktrace via RequestStackTrace",
-    sizeof(func_params4)/sizeof(func_params4[0]),
+    0,
     func_params4,
     sizeof(errors)/sizeof(jvmtiError),   // non-universal errors
     errors
