@@ -73,6 +73,7 @@
 #include "runtime/javaThread.hpp"
 #include "runtime/os.hpp"
 #include "runtime/sharedRuntime.hpp"
+#include "runtime/stackWalker.hpp"
 #include "runtime/stubRoutines.hpp"
 #include "runtime/task.hpp"
 #include "runtime/threads.hpp"
@@ -512,6 +513,7 @@ void before_exit(JavaThread* thread, bool halt) {
   #endif
 
   print_statistics();
+  STACKWALKER_ONLY(StackWalker::print_statistics();)
 
   { MutexLocker ml(BeforeExit_lock);
     _before_exit_status = BEFORE_EXIT_DONE;

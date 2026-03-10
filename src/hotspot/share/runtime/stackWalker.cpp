@@ -31,6 +31,7 @@
 #include "code/debugInfoRec.hpp"
 #include "gc/shared/gc_globals.hpp"
 #include "interpreter/interpreter.hpp"
+#include "logging/log.hpp"
 #include "memory/allocation.hpp"
 #include "runtime/atomicAccess.hpp"
 #include "runtime/continuation.hpp"
@@ -46,6 +47,34 @@
 #include "utilities/spinYield.hpp"
 
 volatile u4 StackWalkerRequestQueue::_lost_requests_sum = 0;
+
+// ---- Bias reason counters ----
+// request_stack_trace outcomes
+static volatile u4 requests_total = 0;
+static volatile u4 requests_not_suspended = 0;
+
+// build_stack_walk_request outcomes
+static volatile u4 requests_unbiased_ljf = 0;
+static volatile u4 requests_unbiased_ctx = 0;
+static volatile u4 requests_biased = 0;
+
+// build_from_ljf failure reasons
+static volatile u4 ljf_no_java_sp = 0;
+static volatile u4 ljf_null_pc = 0;
+static volatile u4 ljf_critical_section = 0;
+static volatile u4 ljf_build_failed = 0;
+
+// build_from_context failure reasons
+static volatile u4 ctx_no_context = 0;
+static volatile u4 ctx_critical_section = 0;
+static volatile u4 ctx_sender_failed = 0;
+static volatile u4 ctx_build_failed = 0;
+
+// compute_top_frame walk-time bias
+static volatile u4 walk_no_last_java_frame = 0;
+static volatile u4 walk_null_pc_or_no_blob = 0;
+static volatile u4 walk_safepoint_bias = 0;
+static volatile u4 walk_safepoint_corrected = 0;
 
 class StackWalkerVframeStream : public vframeStreamCommon {
   bool _vthread;
@@ -610,6 +639,7 @@ static bool build_from_ljf(StackWalkRequest& request,
   if (last_pc == nullptr) {
     last_pc = frame::return_address(static_cast<intptr_t*>(request.sample_sp()));
     if (last_pc == nullptr) {
+      AtomicAccess::inc(&ljf_null_pc);
       return false;
     }
   }
@@ -617,14 +647,23 @@ static bool build_from_ljf(StackWalkRequest& request,
   if (is_interpreter(last_pc)) {
     const StackWalkerThreadLocal& tl = jt->stackwalker_thread_local();
     if (tl.in_critical_section()) {
+      AtomicAccess::inc(&ljf_critical_section);
       return false;
     }
     request.set_sample_pc(last_pc);
     request.set_sample_bcp(jt->frame_anchor()->last_Java_fp());
-    return build_for_interpreter(request, jt);
+    bool result = build_for_interpreter(request, jt);
+    if (!result) {
+      AtomicAccess::inc(&ljf_build_failed);
+    }
+    return result;
   }
   request.set_sample_pc(last_pc);
-  return build(request, nullptr, jt);
+  bool result = build(request, nullptr, jt);
+  if (!result) {
+    AtomicAccess::inc(&ljf_build_failed);
+  }
+  return result;
 }
 
 static bool build_from_context(StackWalkRequest& request,
@@ -640,6 +679,7 @@ static bool build_from_context(StackWalkRequest& request,
   if (is_interpreter(request)) {
     const StackWalkerThreadLocal& tl = jt->stackwalker_thread_local();
     if (tl.in_critical_section() || !in_stack(fp, jt)) {
+      AtomicAccess::inc(&ctx_critical_section);
       return false;
     }
     if (frame::is_interpreter_frame_setup_at(fp, request.sample_sp())) {
@@ -653,10 +693,15 @@ static bool build_from_context(StackWalkRequest& request,
     request.set_sample_bcp(fp);
     fp = sender_for_interpreter_frame(request, jt);
     if (request.sample_pc() == nullptr || request.sample_sp() == nullptr) {
+      AtomicAccess::inc(&ctx_sender_failed);
       return false;
     }
   }
-  return build(request, fp, jt);
+  bool result = build(request, fp, jt);
+  if (!result) {
+    AtomicAccess::inc(&ctx_build_failed);
+  }
+  return result;
 }
 
 // A biased stack-walk request is denoted by an empty bcp and an empty pc.
@@ -676,13 +721,26 @@ void StackWalker::build_stack_walk_request(StackWalkRequest& request, const void
 
   // Prioritize the ljf, if one exists.
   request.set_sample_sp(java_thread->last_Java_sp());
-  if (request.sample_sp() != nullptr && build_from_ljf(request, java_thread)) {
-    set_unbiased(request, java_thread);
-  } else if (ucontext != nullptr && build_from_context(request, ucontext, java_thread)) {
-    set_unbiased(request, java_thread);
+  if (request.sample_sp() != nullptr) {
+    if (build_from_ljf(request, java_thread)) {
+      AtomicAccess::inc(&requests_unbiased_ljf);
+      set_unbiased(request, java_thread);
+      return;
+    }
   } else {
-    set_biased(request, java_thread);
+    AtomicAccess::inc(&ljf_no_java_sp);
   }
+  if (ucontext != nullptr) {
+    if (build_from_context(request, ucontext, java_thread)) {
+      AtomicAccess::inc(&requests_unbiased_ctx);
+      set_unbiased(request, java_thread);
+      return;
+    }
+  } else {
+    AtomicAccess::inc(&ctx_no_context);
+  }
+  AtomicAccess::inc(&requests_biased);
+  set_biased(request, java_thread);
 }
 
 static bool check_state(const JavaThread* thread) {
@@ -696,6 +754,8 @@ static bool check_state(const JavaThread* thread) {
 }
 
 void StackWalker::request_stack_trace(StackWalkRequest& request, JavaThread* jt, const void* context, bool thread_is_suspended) {
+  AtomicAccess::inc(&requests_total);
+
   StackWalkerThreadLocal& tl = jt->stackwalker_thread_local();
   StackWalkerRequestQueue& queue = tl.queue();
   if (thread_is_suspended && !check_state(jt)) {
@@ -715,6 +775,8 @@ void StackWalker::request_stack_trace(StackWalkRequest& request, JavaThread* jt,
     // For foreign threads, assume biased stack-walking and don't even attempt
     // to build an unbiased request.
     build_stack_walk_request(request, context, jt);
+  } else {
+    AtomicAccess::inc(&requests_not_suspended);
   }
 
   if (queue.enqueue(request)) {
@@ -833,6 +895,7 @@ static bool compute_top_frame(StackWalkRequest& request, frame& top_frame, bool&
   assert(jt != nullptr, "invariant");
 
   if (!jt->has_last_Java_frame()) {
+    AtomicAccess::inc(&walk_no_last_java_frame);
     return false;
   }
 
@@ -844,6 +907,7 @@ static bool compute_top_frame(StackWalkRequest& request, frame& top_frame, bool&
   CodeBlob* sampled_cb;
   if (sampled_pc == nullptr || (sampled_cb = CodeCache::find_blob(sampled_pc)) == nullptr) {
     // A biased sample is requested or no code blob.
+    AtomicAccess::inc(&walk_null_pc_or_no_blob);
     top_frame = jt->last_frame();
     in_continuation = is_in_continuation(top_frame, jt);
     biased = true;
@@ -897,6 +961,7 @@ static bool compute_top_frame(StackWalkRequest& request, frame& top_frame, bool&
 
   assert(!stream.current()->is_safepoint_blob_frame(), "invariant");
 
+  AtomicAccess::inc(&walk_safepoint_bias);
   biased = true;
 
   // Search the first frame that is above the sampled sp.
@@ -922,6 +987,7 @@ static bool compute_top_frame(StackWalkRequest& request, frame& top_frame, bool&
         const PcDesc* const pc_desc = get_pc_desc(sampled_nm, sampled_pc);
         if (is_valid(pc_desc)) {
           current->adjust_pc(pc_desc->real_pc(sampled_nm));
+          AtomicAccess::inc(&walk_safepoint_corrected);
           biased = false;
         }
       }
@@ -1139,6 +1205,47 @@ void StackWalker::on_javathread_create(JavaThread* thread) {
     return;
   }
   thread->stackwalker_thread_local().queue().init();
+}
+
+void StackWalker::print_statistics() {
+  u4 total = AtomicAccess::load(&requests_total);
+  if (total == 0) {
+    return;
+  }
+
+#define SW_LOG_COUNTER(name) \
+  log_info(stackwalk)("  %-30s %10u (%5.1f%%)", #name, AtomicAccess::load(&name), 100.0 * AtomicAccess::load(&name) / total)
+
+  log_info(stackwalk)("StackWalker bias statistics:");
+  log_info(stackwalk)("  %-30s %10u", "requests_total", total);
+
+  log_info(stackwalk)("  -- request_stack_trace outcomes --");
+  SW_LOG_COUNTER(requests_not_suspended);
+
+  log_info(stackwalk)("  -- build_stack_walk_request outcomes --");
+  SW_LOG_COUNTER(requests_unbiased_ljf);
+  SW_LOG_COUNTER(requests_unbiased_ctx);
+  SW_LOG_COUNTER(requests_biased);
+
+  log_info(stackwalk)("  -- build_from_ljf failure reasons --");
+  SW_LOG_COUNTER(ljf_no_java_sp);
+  SW_LOG_COUNTER(ljf_null_pc);
+  SW_LOG_COUNTER(ljf_critical_section);
+  SW_LOG_COUNTER(ljf_build_failed);
+
+  log_info(stackwalk)("  -- build_from_context failure reasons --");
+  SW_LOG_COUNTER(ctx_no_context);
+  SW_LOG_COUNTER(ctx_critical_section);
+  SW_LOG_COUNTER(ctx_sender_failed);
+  SW_LOG_COUNTER(ctx_build_failed);
+
+  log_info(stackwalk)("  -- compute_top_frame walk-time bias --");
+  SW_LOG_COUNTER(walk_no_last_java_frame);
+  SW_LOG_COUNTER(walk_null_pc_or_no_blob);
+  SW_LOG_COUNTER(walk_safepoint_bias);
+  SW_LOG_COUNTER(walk_safepoint_corrected);
+
+#undef SW_LOG_COUNTER
 }
 
 #endif // INCLUDE_STACKWALKER

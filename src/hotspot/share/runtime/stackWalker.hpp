@@ -281,6 +281,8 @@ public:
   // Entry point for the runtime to trigger stack-walk processing.
   static inline void check_and_process_requests(JavaThread* jt);
 
+  static void print_statistics();
+
   DEBUG_ONLY(static bool set_out_of_stack_walking_enabled(bool enabled);)
 };
 
