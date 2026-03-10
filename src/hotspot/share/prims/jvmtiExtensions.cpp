@@ -30,6 +30,11 @@
 #include "runtime/interfaceSupport.inline.hpp"
 #include "runtime/jniHandles.inline.hpp"
 #include "runtime/mountUnmountDisabler.hpp"
+#include "utilities/macros.hpp"
+
+#if INCLUDE_STACKWALKER
+#include "runtime/stackWalker.hpp"
+#endif
 
 // the list of extension functions
 GrowableArray<jvmtiExtensionFunctionInfo*>* JvmtiExtensions::_ext_functions;
@@ -37,6 +42,66 @@ GrowableArray<jvmtiExtensionFunctionInfo*>* JvmtiExtensions::_ext_functions;
 // the list of extension events
 GrowableArray<jvmtiExtensionEventInfo*>* JvmtiExtensions::_ext_events;
 
+#if INCLUDE_STACKWALKER
+// async stack trace capability
+bool JvmtiExtensions::_can_request_stack_trace = false;
+
+// JVMTI callback wrapper for StackWalker
+class JvmtiStackWalkerCallback : public StackWalkerCallback {
+  jvmtiBeginStackTraceCallback _begin_callback;
+  jvmtiEndStackTraceCallback _end_callback;
+  jvmtiStackFrameCallback _frame_callback;
+  const void* _user_data;
+  JavaThread* _jt;
+
+  static jvmtiFrameType convert_type(StackWalkerFrameType type) {
+    switch (type) {
+      case StackWalkerFrameType::FRAME_INTERPRETER:
+      case StackWalkerFrameType::FRAME_JIT:
+      case StackWalkerFrameType::FRAME_INLINE:
+        return JVMTI_JAVA_FRAME;
+      case StackWalkerFrameType::FRAME_NATIVE:
+        return JVMTI_NATIVE_FRAME;
+    }
+    ShouldNotReachHere();
+    return JVMTI_JAVA_FRAME;
+  }
+
+public:
+  JvmtiStackWalkerCallback(jvmtiBeginStackTraceCallback begin_callback,
+                           jvmtiEndStackTraceCallback end_callback,
+                           jvmtiStackFrameCallback frame_callback,
+                           const void* user_data) :
+    _begin_callback(begin_callback),
+    _end_callback(end_callback),
+    _frame_callback(frame_callback),
+    _user_data(user_data),
+    _jt(nullptr) {}
+
+  void begin_stacktrace(JavaThread* jt, bool continuation, bool biased) override {
+    _jt = jt;
+    ThreadToNativeFromVM ttnfv(jt);
+    _begin_callback(false, biased, _user_data);
+  }
+
+  void end_stacktrace(bool truncated) override {
+    ThreadToNativeFromVM ttnfv(_jt);
+    _end_callback(_user_data);
+  }
+
+  void stack_frame(const Method* method, int bci, int line_no, StackWalkerFrameType type) override {
+    jvmtiFrameType frame_type = convert_type(type);
+    jlocation loc = bci;
+    jmethodID method_id = const_cast<Method*>(method)->jmethod_id();
+    ThreadToNativeFromVM ttnfv(_jt);
+    _frame_callback(frame_type, method_id, loc, _user_data);
+  }
+
+  void failure() override {
+    // Nothing to report on failure
+  }
+};
+#endif // INCLUDE_STACKWALKER
 
 //
 // Extension Functions
@@ -167,6 +232,85 @@ static jvmtiError JNICALL GetCarrierThread(const jvmtiEnv* env, ...) {
   return JVMTI_ERROR_NONE;
 }
 
+#if INCLUDE_STACKWALKER
+// JvmtiEnv::RequestStackTrace(jthread thread, void* ucontext, , const void* user_data) {
+
+// Parameters: (thread, ucontext, begin_stack_trace_callback, end_stack_trace_callback, stack_frame_callback, user_data)
+static jvmtiError JNICALL RequestStackTrace(const jvmtiEnv* env, ...) {
+  JvmtiEnv* jvmti_env = JvmtiEnv::JvmtiEnv_from_jvmti_env((jvmtiEnv*)env);
+  if (!JvmtiExtensions::can_request_stack_trace()) {
+    return JVMTI_ERROR_MUST_POSSESS_CAPABILITY;
+  }
+
+  // Use current_or_null_safe() because this is called from a signal handler
+  // and the signal may fire on a thread that is detaching from the VM.
+  Thread* current = Thread::current_or_null_safe();
+  if (current == nullptr || !current->is_Java_thread()) {
+    return JVMTI_ERROR_WRONG_PHASE;
+  }
+
+  JavaThread* java_thread = JavaThread::cast(current);
+
+  // Filter out threads that are exiting or excluded, matching the JFR CPU
+  // time sampler's get_java_thread_if_valid() checks.
+  if (java_thread->is_exiting() ||
+      java_thread->is_hidden_from_external_view()) {
+    return JVMTI_ERROR_WRONG_PHASE;
+  }
+
+  HandleMark hm(java_thread);
+  jthread thread = nullptr;
+  void* ucontext;
+  jvmtiBeginStackTraceCallback begin_stack_trace_callback;
+  jvmtiEndStackTraceCallback end_stack_trace_callback;
+  jvmtiStackFrameCallback stack_frame_callback;
+  const void* user_data;
+
+  va_list ap;
+
+  va_start(ap, env);
+  thread = va_arg(ap, jthread);
+  ucontext = va_arg(ap, void*);
+  begin_stack_trace_callback = va_arg(ap, jvmtiBeginStackTraceCallback);
+  end_stack_trace_callback = va_arg(ap, jvmtiEndStackTraceCallback);
+  stack_frame_callback = va_arg(ap, jvmtiStackFrameCallback);
+  user_data = va_arg(ap, const void*);
+  va_end(ap);
+
+  if (thread == nullptr) {
+    // Use StackWalker API directly.
+    // Note: StackWalker::initialize() is called in init_globals2() after
+    // InitializeRequestStackTrace sets can_request_stack_trace().
+    StackWalkRequest request;
+    request.set_max_frames(512);
+    request.construct_callback<JvmtiStackWalkerCallback>(
+        begin_stack_trace_callback, end_stack_trace_callback,
+        stack_frame_callback, user_data);
+    StackWalker::request_stack_trace(request, java_thread, ucontext, true /* suspended */);
+    return JVMTI_ERROR_NONE;
+  }
+  return JVMTI_ERROR_UNSUPPORTED_OPERATION;
+}
+
+// No parameters.
+static jvmtiError JNICALL InitializeRequestStackTrace(const jvmtiEnv* env, ...) {
+  // Set the flag so post_initialize() will initialize the StackWalker.
+  // Note: This is typically called during Agent_OnLoad before the VM is fully
+  // initialized, so we cannot initialize StackWalker here directly.
+  JvmtiExtensions::set_can_request_stack_trace(true);
+  return JVMTI_ERROR_NONE;
+}
+
+// Called from init_globals2() after VM initialization is complete.
+void JvmtiExtensions::post_initialize() {
+  // Initialize the StackWalker if JVMTI requested async stack traces.
+  // This must happen after VM initialization is complete (BarrierSet created).
+  if (JvmtiExtensions::can_request_stack_trace()) {
+    StackWalker::initialize();
+  }
+}
+#endif
+
 // register extension functions and events. In this implementation we
 // have a single extension function (to prove the API) that tests if class
 // unloading is enabled or disabled. We also have a single extension event
@@ -189,6 +333,20 @@ void JvmtiExtensions::register_extensions() {
     { (char*)"GetCarrierThread", JVMTI_KIND_IN, JVMTI_TYPE_JTHREAD, JNI_FALSE },
     { (char*)"GetCarrierThread", JVMTI_KIND_OUT, JVMTI_TYPE_JTHREAD, JNI_FALSE }
   };
+
+#if INCLUDE_STACKWALKER
+  // RequestStackTrace
+  static jvmtiParamInfo func_params3[] = {
+    { (char*)"thread", JVMTI_KIND_IN, JVMTI_TYPE_JTHREAD, JNI_TRUE },
+    { (char*)"ucontext", JVMTI_KIND_OUT_BUF, JVMTI_TYPE_CVOID, JNI_TRUE },
+    { (char*)"begin_stack_trace_callback", JVMTI_KIND_OUT_BUF, JVMTI_TYPE_CVOID, JNI_FALSE },
+    { (char*)"end_stack_trace_callback", JVMTI_KIND_OUT_BUF, JVMTI_TYPE_CVOID, JNI_FALSE },
+    { (char*)"stack_frame_callback", JVMTI_KIND_OUT_BUF, JVMTI_TYPE_CVOID, JNI_FALSE },
+    { (char*)"user_data", JVMTI_KIND_IN_BUF, JVMTI_TYPE_CVOID, JNI_TRUE }
+  };
+  // InitializeRequestStackTrace
+  static jvmtiParamInfo* func_params4 = nullptr;
+#endif
 
   static jvmtiError errors[] = {
     JVMTI_ERROR_MUST_POSSESS_CAPABILITY,
@@ -225,9 +383,35 @@ void JvmtiExtensions::register_extensions() {
     errors
   };
 
+#if INCLUDE_STACKWALKER
+  static jvmtiExtensionFunctionInfo ext_func3 = {
+    (jvmtiExtensionFunction)RequestStackTrace,
+    (char*)"com.sun.hotspot.functions.RequestStackTrace",
+    (char*)"Request a stacktrace to be emitted via callbacks",
+    sizeof(func_params3)/sizeof(func_params3[0]),
+    func_params3,
+    sizeof(errors)/sizeof(jvmtiError),   // non-universal errors
+    errors
+  };
+
+  static jvmtiExtensionFunctionInfo ext_func4 = {
+    (jvmtiExtensionFunction)InitializeRequestStackTrace,
+    (char*)"com.sun.hotspot.functions.InitializeRequestStackTrace",
+    (char*)"Initializes the VM to enable requesting a stacktrace via RequestStackTrace",
+    0,
+    func_params4,
+    sizeof(errors)/sizeof(jvmtiError),   // non-universal errors
+    errors
+  };
+#endif // INCLUDE_STACKWALKER
+
   _ext_functions->append(&ext_func0);
   _ext_functions->append(&ext_func1);
   _ext_functions->append(&ext_func2);
+#if INCLUDE_STACKWALKER
+  _ext_functions->append(&ext_func3);
+  _ext_functions->append(&ext_func4);
+#endif
 
   // register our extension event
 
