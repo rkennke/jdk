@@ -27,7 +27,6 @@
 
 #if INCLUDE_STACKWALKER
 
-#include "memory/allocation.hpp"
 #include "code/codeCache.hpp"
 #include "code/debugInfoRec.hpp"
 #include "gc/shared/gc_globals.hpp"
