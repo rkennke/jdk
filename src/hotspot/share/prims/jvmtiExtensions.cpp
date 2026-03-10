@@ -30,7 +30,11 @@
 #include "runtime/interfaceSupport.inline.hpp"
 #include "runtime/jniHandles.inline.hpp"
 #include "runtime/mountUnmountDisabler.hpp"
+#include "utilities/macros.hpp"
+
+#if INCLUDE_STACKWALKER
 #include "runtime/stackWalker.hpp"
+#endif
 
 // the list of extension functions
 GrowableArray<jvmtiExtensionFunctionInfo*>* JvmtiExtensions::_ext_functions;
@@ -38,10 +42,10 @@ GrowableArray<jvmtiExtensionFunctionInfo*>* JvmtiExtensions::_ext_functions;
 // the list of extension events
 GrowableArray<jvmtiExtensionEventInfo*>* JvmtiExtensions::_ext_events;
 
+#if INCLUDE_STACKWALKER
 // async stack trace capability
 bool JvmtiExtensions::_can_request_stack_trace = false;
 
-#ifdef LINUX
 // JVMTI callback wrapper for StackWalker
 class JvmtiStackWalkerCallback : public StackWalkerCallback {
   jvmtiBeginStackTraceCallback _begin_callback;
@@ -97,8 +101,7 @@ public:
     // Nothing to report on failure
   }
 };
-#endif // LINUX
-
+#endif // INCLUDE_STACKWALKER
 
 //
 // Extension Functions
@@ -229,6 +232,7 @@ static jvmtiError JNICALL GetCarrierThread(const jvmtiEnv* env, ...) {
   return JVMTI_ERROR_NONE;
 }
 
+#if INCLUDE_STACKWALKER
 // JvmtiEnv::RequestStackTrace(jthread thread, void* ucontext, , const void* user_data) {
 
 // Parameters: (thread, ucontext, begin_stack_trace_callback, end_stack_trace_callback, stack_frame_callback, user_data)
@@ -250,8 +254,7 @@ static jvmtiError JNICALL RequestStackTrace(const jvmtiEnv* env, ...) {
   // Filter out threads that are exiting or excluded, matching the JFR CPU
   // time sampler's get_java_thread_if_valid() checks.
   if (java_thread->is_exiting() ||
-      java_thread->is_hidden_from_external_view() ||
-      java_thread->jfr_thread_local()->is_excluded()) {
+      java_thread->is_hidden_from_external_view()) {
     return JVMTI_ERROR_WRONG_PHASE;
   }
 
@@ -274,7 +277,6 @@ static jvmtiError JNICALL RequestStackTrace(const jvmtiEnv* env, ...) {
   user_data = va_arg(ap, const void*);
   va_end(ap);
 
-#ifdef LINUX
   if (thread == nullptr) {
     // Use StackWalker API directly.
     // Note: StackWalker::initialize() is called in init_globals2() after
@@ -287,7 +289,6 @@ static jvmtiError JNICALL RequestStackTrace(const jvmtiEnv* env, ...) {
     StackWalker::request_stack_trace(request, java_thread, ucontext, true /* suspended */);
     return JVMTI_ERROR_NONE;
   }
-#endif
   return JVMTI_ERROR_UNSUPPORTED_OPERATION;
 }
 
@@ -302,14 +303,13 @@ static jvmtiError JNICALL InitializeRequestStackTrace(const jvmtiEnv* env, ...) 
 
 // Called from init_globals2() after VM initialization is complete.
 void JvmtiExtensions::post_initialize() {
-#ifdef LINUX
   // Initialize the StackWalker if JVMTI requested async stack traces.
   // This must happen after VM initialization is complete (BarrierSet created).
   if (JvmtiExtensions::can_request_stack_trace()) {
     StackWalker::initialize();
   }
-#endif
 }
+#endif
 
 // register extension functions and events. In this implementation we
 // have a single extension function (to prove the API) that tests if class
@@ -333,6 +333,8 @@ void JvmtiExtensions::register_extensions() {
     { (char*)"GetCarrierThread", JVMTI_KIND_IN, JVMTI_TYPE_JTHREAD, JNI_FALSE },
     { (char*)"GetCarrierThread", JVMTI_KIND_OUT, JVMTI_TYPE_JTHREAD, JNI_FALSE }
   };
+
+#if INCLUDE_STACKWALKER
   // RequestStackTrace
   static jvmtiParamInfo func_params3[] = {
     { (char*)"thread", JVMTI_KIND_IN, JVMTI_TYPE_JTHREAD, JNI_TRUE },
@@ -345,6 +347,7 @@ void JvmtiExtensions::register_extensions() {
   // InitializeRequestStackTrace
   static jvmtiParamInfo func_params4[] = {
   };
+#endif
 
   static jvmtiError errors[] = {
     JVMTI_ERROR_MUST_POSSESS_CAPABILITY,
@@ -381,6 +384,7 @@ void JvmtiExtensions::register_extensions() {
     errors
   };
 
+#if INCLUDE_STACKWALKER
   static jvmtiExtensionFunctionInfo ext_func3 = {
     (jvmtiExtensionFunction)RequestStackTrace,
     (char*)"com.sun.hotspot.functions.RequestStackTrace",
@@ -400,12 +404,15 @@ void JvmtiExtensions::register_extensions() {
     sizeof(errors)/sizeof(jvmtiError),   // non-universal errors
     errors
   };
+#endif // INCLUDE_STACKWALKER
 
   _ext_functions->append(&ext_func0);
   _ext_functions->append(&ext_func1);
   _ext_functions->append(&ext_func2);
+#if INCLUDE_STACKWALKER
   _ext_functions->append(&ext_func3);
   _ext_functions->append(&ext_func4);
+#endif
 
   // register our extension event
 

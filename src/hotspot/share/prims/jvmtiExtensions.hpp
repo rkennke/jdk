@@ -75,7 +75,8 @@ class JvmtiExtensions : public AllStatic {
                                        jvmtiExtensionEvent callback);
 
   // called after VM initialization to perform deferred initialization
-  static void post_initialize();
+  static void post_initialize() NOT_STACKWALKER_RETURN();
+
 };
 
 #endif // SHARE_PRIMS_JVMTIEXTENSIONS_HPP
